@@ -1,0 +1,66 @@
+/*
+ * SFMC UX Tools — look of the demo page of MobileConnect's list of messages: plain, so that the
+ * picture shows the checkboxes, the button and the dialog of the extension.
+ */
+.demo-mobile-bar {
+    padding: 10px 24px;
+    background: #032d60;
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.demo-mobile-main {
+    width: 900px;
+    margin: 0 auto;
+    padding: 24px 0;
+}
+
+.demo-mobile-repeater {
+    border: 1px solid #d8dde6;
+    border-radius: 4px;
+    background: #ffffff;
+    color: #181818;
+    font-size: 13px;
+}
+
+.demo-mobile-repeater .repeater-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid #d8dde6;
+}
+
+.demo-mobile-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.demo-mobile-count {
+    color: #5c5c5c;
+}
+
+.demo-mobile-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.demo-mobile-table th,
+.demo-mobile-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid #eef1f6;
+    line-height: 20px;
+    text-align: left;
+}
+
+.demo-mobile-table th {
+    background: #f3f3f3;
+    color: #5c5c5c;
+    font-weight: 600;
+}
+
+.demo-mobile-table a {
+    color: #0b5cab;
+    cursor: pointer;
+}

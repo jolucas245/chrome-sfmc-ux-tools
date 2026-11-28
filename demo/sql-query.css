@@ -1,0 +1,48 @@
+/*
+ * SFMC UX Tools — layout of the demo page of the SQL query activity: the dialog's row of buttons
+ * above the editor, in the looks of Automation Studio's.
+ */
+.demo-query-dialog {
+    width: 720px;
+    overflow: visible;
+}
+
+.demo-query-toolbar {
+    margin-bottom: 8px;
+    overflow: hidden;
+}
+
+.demo-query-label {
+    display: inline-block;
+    padding: 7px 0;
+    color: #3e3e3c;
+    font-size: 12px;
+    line-height: 20px;
+}
+
+.pull-right {
+    float: right;
+}
+
+.btn {
+    padding: 6px 12px;
+    color: #0176d3;
+    font: inherit;
+    font-size: 13px;
+    line-height: 20px;
+    background: #ffffff;
+    border: 1px solid #c9c9c9;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+#queryEditor {
+    height: 76px;
+    border: 1px solid #c9c9c9;
+}
+
+/* Chrome fills the id of the extension into the address of the icon of the status; here it is
+   the icon of the build */
+.sfmc-check-status > .sfmc-check-status-icon {
+    background-image: url('/dist/extension/icons/icon16.png');
+}

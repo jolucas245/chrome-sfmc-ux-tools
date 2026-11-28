@@ -17,6 +17,8 @@ const EDITOR_FILES = [
 // what formats the message in the editor of a form; asked for once a form has its editor
 const FORMAT_FILE = 'editor-format.js';
 const EXTENSION = 'chrome-extension://id/';
+// who a message of the extension itself comes from
+const EXTENSION_ITSELF = { id: 'id' };
 /**
  * Leaves the scripts of the code editor on their way for good, so the field of a message stays
  * the plain one.
@@ -89,8 +91,23 @@ function page(
     `);
     // what the script asked the settings for; the entry itself depends on none
     const settingsRead = [];
+    // what the script sent to the extension, and what listens for the extension in the page
+    const sent = [];
+    const listeners = [];
     window.chrome = {
-        runtime: { getURL: (path) => `chrome-extension://id/${path}` },
+        runtime: {
+            id: 'id',
+            getURL: (path) => `chrome-extension://id/${path}`,
+            onMessage: {
+                addListener: (item) => {
+                    listeners.push(item);
+                },
+            },
+            sendMessage: async (message) => {
+                // a copy, because an object of the page is not one of the test
+                sent.push(structuredClone(message));
+            },
+        },
         storage: {
             sync: {
                 // isBroken fails the settings a form reads
@@ -168,6 +185,21 @@ function page(
         entry,
         panel,
         settingsRead,
+        sent,
+        /**
+         * Lets the script hear a message as the extension passes it on.
+         *
+         * @param {object} message the message
+         * @param {object} [sender] who sent it; the extension itself when left out
+         * @returns {Promise.<object|undefined>} what the script answered; nothing when it will not answer
+         */
+        hear: async (message, sender = EXTENSION_ITSELF) => {
+            const { promise, resolve } = Promise.withResolvers();
+            const willAnswer = listeners[0](message, sender, (answer) =>
+                resolve(structuredClone(answer)),
+            );
+            return willAnswer === true ? promise : undefined;
+        },
         open: async () => {
             // a menu that was put into the page is seen a moment later
             await tick();
@@ -4167,6 +4199,12 @@ test('the entry and the panel carry the icon of the extension, which names it', 
                 'https://*.lightning.force.com/*',
             ],
         },
+        // the two icons of the buttons that hide and show the menu of Email Studio, which have
+        // a test of their own
+        {
+            resources: ['icons/sidebar-hide.svg', 'icons/sidebar-show.svg'],
+            matches: ['https://*.exacttarget.com/*'],
+        },
         {
             resources: [...EDITOR_FILES, FORMAT_FILE],
             matches: ['https://*.exacttarget.com/*'],
@@ -7865,4 +7903,246 @@ test('an SMS message has no link to Content Builder, and asks for no business un
     assert.equal(at.panel().querySelector('form'), null);
     assert.deepEqual(contentLinks(at), []);
     assert.equal(at.looked.includes(UNIT), false);
+});
+
+const PANEL_OPEN = 'sfmc-ux-tools:mobile:panel-open';
+const JOURNEYS = 'sfmc-ux-tools:mobile:journeys';
+const PANEL_CLOSED = 'sfmc-ux-tools:mobile:panel-closed';
+const JOURNEY_LIST =
+    'interaction/v1/interactions?$page=2&$pageSize=50&extras=activities&mostRecentVersionOnly=false';
+
+test('a request of MobilePush opens the panel on the details of one push message, without reading a list', async () => {
+    const at = page(MENU, (path) =>
+        path.startsWith('push/definitions/')
+            ? { body: { ...DEFINITION, definitionKey: 'my key', name: 'a push' } }
+            : { status: 500 },
+    );
+    await tick();
+    // another extension, another kind of message, no key
+    assert.equal(
+        await at.hear({ type: PANEL_OPEN, kind: 'push', key: 'my key' }, { id: 'x' }),
+        undefined,
+    );
+    assert.equal(await at.hear({ type: PANEL_OPEN, kind: 'email', key: 'my key' }), undefined);
+    assert.equal(await at.hear({ type: PANEL_OPEN, kind: 'push', key: null }), undefined);
+    assert.equal(at.panel(), null);
+
+    assert.equal(await at.hear({ type: PANEL_OPEN, kind: 'push', key: 'my key' }), undefined);
+    await tick();
+    await tick();
+    assert.ok(at.panel().open);
+    assert.deepEqual(at.asked, ['push/definitions/my%20key']);
+    assert.match(at.text(), /a push/);
+    const selected = [...at.panel().querySelectorAll('[role="tab"]')].filter(
+        (item) => item.getAttribute('aria-selected') === 'true',
+    );
+    assert.deepEqual(
+        selected.map((item) => item.dataset.kind),
+        ['push'],
+    );
+    // nothing was deleted, so closing it tells nobody
+    at.panel().close();
+    assert.deepEqual(at.sent, []);
+});
+
+/**
+ * Builds a version of a journey as the API hands it out, with activities of which two name a
+ * push message.
+ *
+ * @param {object} [more] what differs
+ * @returns {object} the version
+ */
+const journeyItem = (more) => ({
+    id: '00000000-0000-4000-8000-000000000001',
+    name: 'a journey',
+    definitionType: 'Multistep',
+    version: 2,
+    status: 'Published',
+    activities: [
+        { type: 'WAIT' },
+        { type: 'PUSHNOTIFICATIONACTIVITY', configurationArguments: { pushMessageId: 'abc' } },
+        // of any type, as a number, and not when it is empty
+        { type: 'NEW', configurationArguments: { pushMessageId: 5 } },
+        { type: 'PUSHNOTIFICATIONACTIVITY', configurationArguments: { pushMessageId: '' } },
+        // the SMS message of an activity, of any type too
+        { type: 'SMSSYNC', configurationArguments: { messageId: 'NTQ6NjI1OjA' } },
+        { type: 'NEW', configurationArguments: { messageId: 7 } },
+        { type: 'SMSSYNC', configurationArguments: { messageId: '' } },
+    ],
+    ...more,
+});
+// what the API says of the business unit the page is logged in to
+const ORGANIZATION = { organization: { id: 7 } };
+// where the journeys that send once are counted, and what that answers
+const SINGLE_SENDS =
+    'interaction/v1/interactions?$page=1&$pageSize=1&definitionType=Quicksend&mostRecentVersionOnly=false';
+const SINGLES = { body: { count: 3, page: 1, pageSize: 1, items: [] } };
+/**
+ * Runs the script in a page whose API answers the second page of the journeys.
+ *
+ * @param {object} list what the list of journeys answers
+ * @param {object|null} [context] what the API says of the business unit; null when it fails
+ * @param {object} [singles] what the count of the journeys that send once answers
+ * @returns {object} the page
+ */
+const journeyPage = (list, context = ORGANIZATION, singles = SINGLES) =>
+    page(MENU, (path) => {
+        if (path === 'platform/v1/tokenContext') {
+            return context ? { body: context } : { status: 500 };
+        }
+        if (path === SINGLE_SENDS) {
+            return singles;
+        }
+        return path === JOURNEY_LIST ? list : { status: 500 };
+    });
+
+test('a page of journeys is handed out with the business unit, and only in the expected shape', async () => {
+    const good = { body: { count: 51, page: 2, pageSize: 50, items: [journeyItem()] } };
+    const at = journeyPage(good);
+    assert.deepEqual(await at.hear({ type: JOURNEYS, page: 2 }), {
+        isOk: true,
+        count: 51,
+        pageSize: 50,
+        singleSends: 3,
+        mid: '7',
+        origin: 'https://mc.s7.exacttarget.com',
+        journeys: [
+            {
+                id: '00000000-0000-4000-8000-000000000001',
+                name: 'a journey',
+                type: 'Multistep',
+                version: 2,
+                status: 'Published',
+                pushIds: ['abc', '5'],
+                smsIds: ['NTQ6NjI1OjA', '7'],
+            },
+        ],
+    });
+    assert.deepEqual(at.written, []);
+    // nothing of it comes from the browser's cache
+    assert.deepEqual(
+        at.calls.map((call) => call.cache),
+        ['no-store', 'no-store', 'no-store'],
+    );
+    // not for the script of a page
+    assert.equal(
+        await at.hear({ type: JOURNEYS, page: 2 }, { id: 'id', tab: { id: 7 } }),
+        undefined,
+    );
+    // not for another extension, and not without a page
+    assert.equal(await at.hear({ type: JOURNEYS, page: 2 }, { id: 'x' }), undefined);
+    assert.equal(await at.hear({ type: JOURNEYS, page: null }), undefined);
+
+    const broken = {
+        refused: { status: 403, body: 'InteractionStudio' },
+        'another page size': { body: { ...good.body, pageSize: 25 } },
+        'no count': { body: { ...good.body, count: undefined } },
+        'no items': { body: { ...good.body, items: undefined } },
+        'a version without activities': {
+            body: { ...good.body, items: [journeyItem({ activities: undefined })] },
+        },
+        'another page than the one asked for': { body: { ...good.body, page: 1 } },
+        'a version without a kind': {
+            body: { ...good.body, items: [journeyItem({ definitionType: undefined })] },
+        },
+        'a message id in a shape nobody has seen': {
+            body: {
+                ...good.body,
+                items: [
+                    journeyItem({
+                        activities: [{ configurationArguments: { pushMessageId: {} } }],
+                    }),
+                ],
+            },
+        },
+        'an SMS message id in a shape nobody has seen': {
+            body: {
+                ...good.body,
+                items: [
+                    journeyItem({ activities: [{ configurationArguments: { messageId: [] } }] }),
+                ],
+            },
+        },
+        'a version without an id': {
+            body: { ...good.body, items: [journeyItem({ id: undefined })] },
+        },
+        'a version without a number': {
+            body: { ...good.body, items: [journeyItem({ version: '2' })] },
+        },
+    };
+    for (const [name, list] of Object.entries(broken)) {
+        const answer = await journeyPage(list).hear({ type: JOURNEYS, page: 2 });
+        assert.deepEqual(answer, { isOk: false }, name);
+    }
+    // the business unit: not in the answer, and not read at all
+    for (const context of [{}, null]) {
+        const answer = await journeyPage(good, context).hear({ type: JOURNEYS, page: 2 });
+        assert.deepEqual(answer, { isOk: false }, JSON.stringify(context));
+    }
+    // the journeys that send once: not counted, and not read at all
+    for (const singles of [{ body: { items: [] } }, { status: 403 }]) {
+        const answer = await journeyPage(good, ORGANIZATION, singles).hear({
+            type: JOURNEYS,
+            page: 2,
+        });
+        assert.deepEqual(answer, { isOk: false }, JSON.stringify(singles));
+    }
+});
+
+test('closing the panel after a delete tells the apps of Mobile Studio, once per channel', async () => {
+    const done = await details((path, method) =>
+        method === 'DELETE' ? { status: 200 } : { body: DEFINITION },
+    );
+    await done.press('Delete');
+    await done.press('Delete it');
+    assert.deepEqual(done.sent, []);
+    done.panel().close();
+    await tick();
+    assert.deepEqual(done.sent, [{ type: PANEL_CLOSED, kind: 'sms' }]);
+    // opened and closed again without a delete
+    await done.open();
+    done.panel().close();
+    await tick();
+    assert.equal(done.sent.length, 1);
+
+    // a delete that got no answer may have been carried out
+    const unknown = await details((path, method) =>
+        method === 'DELETE' ? { isDown: true } : { body: DEFINITION },
+    );
+    await unknown.press('Delete');
+    await unknown.press('Delete it');
+    unknown.panel().close();
+    await tick();
+    assert.deepEqual(unknown.sent, [{ type: PANEL_CLOSED, kind: 'sms' }]);
+
+    // a delete that is answered after the panel was closed is told at once
+    const waited = Promise.withResolvers();
+    const late = await details((path, method) =>
+        method === 'DELETE' ? { status: 200 } : { body: DEFINITION },
+    );
+    late.window.fetch = ((fetch) => async (url, options) => {
+        if (options.method === 'DELETE') {
+            await waited.promise;
+        }
+        return fetch(url, options);
+    })(late.window.fetch);
+    await late.press('Delete');
+    await late.press('Delete it');
+    late.panel().close();
+    await tick();
+    assert.deepEqual(late.sent, []);
+    waited.resolve();
+    await tick();
+    await tick();
+    assert.deepEqual(late.sent, [{ type: PANEL_CLOSED, kind: 'sms' }]);
+
+    // a refused one was not, and one that was never sent neither
+    const refused = await details((path, method) =>
+        method === 'DELETE' ? { status: 400, body: { message: 'in use' } } : { body: DEFINITION },
+    );
+    await refused.press('Delete');
+    await refused.press('Delete it');
+    refused.panel().close();
+    await tick();
+    assert.deepEqual(refused.sent, []);
 });

@@ -1,0 +1,53 @@
+/*
+ * SFMC UX Tools — demo page of the Content tab of a free form block: tabs, toolbar and frame of
+ * a plain text editor, drawn by the page.
+ */
+.rich-text-stage {
+    background: #ffffff;
+}
+
+.block-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #dddbda;
+}
+
+.block-tab {
+    padding: 6px 12px;
+    color: #3e3e3c;
+    font-size: 13px;
+}
+
+.block-tab.is-active {
+    border-bottom: 2px solid #0176d3;
+    color: #0176d3;
+    font-weight: 600;
+}
+
+.cke {
+    border: 1px solid #cccccc;
+}
+
+.cke-toolbar {
+    display: flex;
+    gap: 12px;
+    padding: 6px 10px;
+    border-bottom: 1px solid #dddbda;
+    background: #f8f8f8;
+    color: #3e3e3c;
+    font-size: 13px;
+}
+
+.cke iframe {
+    display: block;
+    width: 100%;
+    height: 150px;
+    border: 0;
+}
+
+/* Chrome fills the id of the extension into the address of the note's icon; here it is the icon
+   of the build */
+html .sfmc-rich-text-notice > .sfmc-rich-text-icon {
+    background-image: url('/dist/extension/icons/icon16.png');
+}

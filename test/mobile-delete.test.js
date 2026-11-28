@@ -24,6 +24,8 @@ const PUSH_MESSAGE = 'push/v1/message/';
 const PUSH_DEFINITIONS = 'messaging/v1/push/definitions';
 // the id of a transactional definition, and the one a message without any holds
 const OWNER = 'a1b2c3d4-0000-4000-8000-000000000001';
+// who a message of the extension itself comes from
+const EXTENSION_ITSELF = { id: 'id' };
 const NONE = '00000000-0000-0000-0000-000000000000';
 
 /**
@@ -127,6 +129,10 @@ function api({ message, list, messages, definitions = [], details = {}, deletes 
             // seen live: the answer repeats the size asked for
             return { body: { definitions: rows, count: rows.length, pageSize: size } };
         }
+        // the business unit the frame is logged in to
+        if (path === 'platform/v1/tokenContext') {
+            return { body: { organization: { id: 7 } } };
+        }
         if (path.startsWith(`${list}/`)) {
             const key = decodeURIComponent(path.slice(list.length + 1));
             return details[key] ?? { status: 500, body: { message: 'no answer set up' } };
@@ -180,9 +186,10 @@ const heldByOwner = () => ({
  * @param {string} url address of the frame
  * @param {string} html content of the page
  * @param {(path: string, method: string) => {status?: number, body?: unknown, isDown?: boolean}} [answer] what the API answers to a path below it
- * @returns {object} the page, every request as "METHOD path", those that change something, and where the script wanted to go
+ * @param {(message: object) => object|undefined} [shell] what the Marketing Cloud page answers to a message the script sends through the extension
+ * @returns {object} the page, every request as "METHOD path", those that change something, where the script wanted to go, what it sent to the extension, and a way to let it hear a message from there
  */
-function page(url, html, answer = () => ({ status: 500 })) {
+function page(url, html, answer = () => ({ status: 500 }), shell = () => {}) {
     const { window } = new JSDOM(`<!doctype html><body>${html}</body>`, {
         runScripts: 'outside-only',
         url,
@@ -197,7 +204,24 @@ function page(url, html, answer = () => ({ status: 500 })) {
             this.dispatchEvent(new Event('close'));
         };
     `);
-    window.chrome = { runtime: { getURL: (path) => `chrome-extension://id/${path}` } };
+    const sent = [];
+    const listeners = [];
+    window.chrome = {
+        runtime: {
+            id: 'id',
+            getURL: (path) => `chrome-extension://id/${path}`,
+            onMessage: {
+                addListener: (item) => {
+                    listeners.push(item);
+                },
+            },
+            sendMessage: async (message) => {
+                // a copy, because an object of the page is not one of the test
+                sent.push(structuredClone(message));
+                return shell(message);
+            },
+        },
+    };
     const calls = [];
     const written = [];
     window.fetch = async (address, options) => {
@@ -242,6 +266,10 @@ function page(url, html, answer = () => ({ status: 500 })) {
         calls,
         written,
         left,
+        sent,
+        // lets the script hear a message as the extension passes it on; gives what it answered
+        hear: (message, sender = EXTENSION_ITSELF) =>
+            listeners.map((item) => item(message, sender, () => {})),
         dialog,
         press,
         // a copy, because an object of the page is not one of the test
@@ -1315,7 +1343,8 @@ test('an id is sent as one part of the address, and only a delete of a message c
     assert.deepEqual(at.calls, [`GET ${address}`, `GET ${address}`, `DELETE ${address}`]);
     // nothing in the script sends another method, or a delete to another address
     assert.deepEqual(script.match(/'(?:POST|PUT|PATCH|DELETE)'/g), ["'DELETE'"]);
-    assert.equal(script.match(/\bask\(/g).length, 5);
+    // the sixth reads the business unit, for the journeys
+    assert.equal(script.match(/\bask\(/g).length, 6);
     assert.doesNotMatch(script, /innerHTML|outerHTML|insertAdjacentHTML/);
 });
 
@@ -1345,4 +1374,692 @@ test('the manifest runs the script in the frames of both apps, in the extension�
     );
     assert.ok(icons.matches.includes('https://*.marketingcloudapps.com/*'));
     assert.deepEqual(manifest.host_permissions, ['https://*.marketingcloudapps.com/*']);
+});
+
+const PANEL_OPEN = 'sfmc-ux-tools:mobile:panel-open';
+const JOURNEYS = 'sfmc-ux-tools:mobile:journeys';
+const PANEL_CLOSED = 'sfmc-ux-tools:mobile:panel-closed';
+const SHELL_ORIGIN = 'https://mc.s7.exacttarget.com';
+const FIND = '[data-sfmc-ux-tools-mobile-delete="find"]';
+const OPEN = '[data-sfmc-ux-tools-mobile-delete="open"]';
+/**
+ * Builds a version of a journey as the Marketing Cloud page hands it to the frame.
+ *
+ * @param {number} number which journey
+ * @param {number} version which version of it
+ * @param {...string} pushIds the push messages its activities name
+ * @returns {object} the version
+ */
+const journey = (number, version, ...pushIds) => ({
+    id: `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`,
+    name: `journey ${number}`,
+    type: 'Multistep',
+    version,
+    status: 'Published',
+    pushIds,
+    smsIds: [],
+});
+/**
+ * Answers like the Marketing Cloud page that is asked for a page of the journeys.
+ *
+ * @param {object[]} versions every version of every journey
+ * @param {object} [more] what differs in every answer
+ * @returns {(message: object) => object|undefined} the answer to a message
+ */
+const journeys =
+    (versions, more) =>
+    ({ type, page: number }) =>
+        type === JOURNEYS
+            ? {
+                  isOk: true,
+                  count: versions.length,
+                  pageSize: 50,
+                  singleSends: 0,
+                  mid: '7',
+                  origin: SHELL_ORIGIN,
+                  journeys: versions.slice((number - 1) * 50, number * 50),
+                  ...more,
+              }
+            : undefined;
+/**
+ * Lists the pages of journeys the frame asked the Marketing Cloud page for.
+ *
+ * @param {{sent: object[]}} at the page
+ * @returns {number[]} the pages, in the order they were asked for
+ */
+const pagesAsked = (at) =>
+    at.sent.filter((item) => item.type === JOURNEYS).map((item) => item.page);
+/**
+ * Waits until whatever the script is doing has come to rest.
+ */
+const settle = async () => {
+    for (let round = 0; round < 12; round++) {
+        await tick();
+    }
+};
+
+test('the judgement of a journey’s push message follows what the journeys say, once they were read', () => {
+    const { judge } = page(PUSH, '');
+    const made = pushMessage('5', { sendInitiator: 3, status: 2 });
+    const user = { name: 'journey 1', version: 2, status: 'Published', href: 'https://x' };
+
+    // not read: refused, and reading them could change that
+    assert.deepEqual(judge('push', '5', made), {
+        isAllowed: false,
+        reason: 'A journey made it. The journey would lose its message, and deleting such a message was never tried.',
+        name: 'name of 5',
+        isFindable: true,
+    });
+    // not read completely, or handed in with another shape: refused, and worth another try
+    for (const read of [
+        { isComplete: false },
+        { isComplete: true },
+        { isComplete: true, users: {} },
+    ]) {
+        const verdict = judge('push', '5', made, undefined, read);
+        assert.equal(verdict.isAllowed, false, JSON.stringify(read));
+        assert.match(verdict.reason, /could not be read completely/);
+        assert.equal(verdict.isFindable, true);
+    }
+    // a version uses it: refused for good, with the versions
+    const used = judge('push', '5', made, undefined, {
+        isComplete: true,
+        users: new Map([['5', [user]]]),
+    });
+    assert.equal(used.isAllowed, false);
+    assert.match(used.reason, /A journey uses it/);
+    assert.equal(used.isFindable, undefined);
+    assert.deepEqual([...used.users], [user]);
+    // an id is the same one however it is spelled
+    const spelled = pushMessage('MTo1', { sendInitiator: 3, messageType: 1 });
+    assert.match(
+        judge('push', 'MTo1', spelled, undefined, {
+            isComplete: true,
+            users: new Map([['mto1', [user]]]),
+        }).reason,
+        /A journey uses it/,
+    );
+    // used by none, but another kind of push message than the one it was seen for, or no kind
+    for (const messageType of [8, 7, '8', undefined, null, 'x']) {
+        const verdict = judge('push', '5', { ...made, messageType }, undefined, {
+            isComplete: true,
+            users: new Map(),
+        });
+        assert.equal(verdict.isAllowed, false, String(messageType));
+        assert.match(verdict.reason, /for this kind of push message/, String(messageType));
+        assert.equal(verdict.isFindable, undefined, String(messageType));
+    }
+    // no version uses it: allowed although it is active, and marked as a journey's
+    assert.deepEqual(
+        judge('push', '5', made, undefined, { isComplete: true, users: new Map([['6', [user]]]) }),
+        {
+            isAllowed: true,
+            name: 'name of 5',
+            isJourneyMade: true,
+            note: 'A journey made it, but no journey that still exists uses it.',
+        },
+    );
+    // the journeys change nothing for a message that no journey made
+    assert.equal(
+        judge('push', '5', pushMessage('5', { status: 2 }), undefined, {
+            isComplete: true,
+            users: new Map(),
+        }).isAllowed,
+        false,
+    );
+    // what was read of push messages says nothing of an SMS message
+    const smsVerdict = judge(
+        'sms',
+        '5',
+        smsMessage('5', { sendMethod: 'INTERACTION' }),
+        undefined,
+        {
+            isComplete: true,
+            users: new Map(),
+        },
+    );
+    assert.equal(smsVerdict.isAllowed, false);
+    assert.match(smsVerdict.reason, /could not be read completely/);
+});
+
+test('a push message of a transactional message names the keys of the definitions with its name', () => {
+    const { judge } = page(PUSH, '');
+    const read = {
+        isComplete: true,
+        names: new Set(['name of 5']),
+        keys: new Map([['name of 5', ['k1', 'k2']]]),
+    };
+    const verdict = judge('push', '5', pushMessage('5', { sendInitiator: 1 }), read);
+    assert.equal(verdict.isAllowed, false);
+    assert.deepEqual([...verdict.keys], ['k1', 'k2']);
+    // definitions that were handed in without the keys give no link, and still refuse
+    const bare = judge('push', '5', pushMessage('5', { sendInitiator: 1 }), names('name of 5'));
+    assert.equal(bare.isAllowed, false);
+    assert.deepEqual([...bare.keys], []);
+});
+
+test('the link of a refused transactional push message opens the panel on it and closes the dialog', async () => {
+    const messages = {
+        a: pushMessage('a', { sendInitiator: 1 }),
+        b: pushMessage('b', { sendInitiator: 1 }),
+    };
+    const at = page(
+        PUSH,
+        pushList('a', 'b'),
+        push({
+            messages,
+            definitions: [
+                row('name of a'),
+                // two definitions with the name of b, and a deleted one that gets no link
+                { name: 'Name of B', definitionKey: 'first', status: 'Active' },
+                { name: 'name of b', definitionKey: 'second', status: 'Inactive' },
+                { name: 'name of b', definitionKey: 'gone', status: 'Deleted' },
+            ],
+        }),
+    );
+    await at.choose('a', 'b');
+    const links = [...at.dialog().querySelectorAll(OPEN)];
+    assert.deepEqual(
+        links.map((link) => link.textContent),
+        [
+            'Open the transactional message',
+            'Open the transactional message “first”',
+            'Open the transactional message “second”',
+        ],
+    );
+    for (const link of links) {
+        assert.match(link.title, /^SFMC UX Tools: closes this dialog and opens/);
+        assert.equal(link.type, 'button');
+    }
+    assert.equal(at.dialog().querySelector(FIND), null);
+    links[2].click();
+    await tick();
+    assert.deepEqual(at.sent, [{ type: PANEL_OPEN, kind: 'push', key: 'second' }]);
+    assert.equal(at.dialog(), null);
+    // nothing was deleted, so nothing is loaded again
+    assert.deepEqual(at.written, []);
+    assert.deepEqual(at.left, []);
+});
+
+test('"Find the journey" reads the journeys once for the dialog and links the versions that use a message', async () => {
+    const messages = {
+        a: pushMessage('a', { sendInitiator: 3, status: 2 }),
+        b: pushMessage('b', { sendInitiator: 3, status: 2 }),
+        c: pushMessage('c'),
+    };
+    // 51 versions, so that there are two pages
+    const versions = Array.from({ length: 49 }, (item, index) => journey(index + 10, 1));
+    versions.push(journey(1, 1, 'a'), journey(1, 2, 'a', 'other'));
+    const at = page(PUSH, pushList('a', 'b', 'c'), push({ messages }), journeys(versions));
+    await at.choose('a', 'b', 'c');
+    // nothing is read of the journeys before the click
+    assert.deepEqual(at.sent, []);
+    assert.match(at.text(), /Will be deleted \(1\)/);
+    assert.match(at.text(), /Will not be deleted \(2\)/);
+    const finds = [...at.dialog().querySelectorAll(FIND)];
+    assert.equal(finds.length, 2);
+    assert.equal(finds[0].textContent, 'Find the journey');
+    assert.match(finds[0].title, /^SFMC UX Tools: reads all journeys of this business unit/);
+    finds[0].click();
+    await settle();
+    assert.deepEqual(pagesAsked(at), [1, 2]);
+    // a: used, with a link per version; b: used by none, so it may be deleted now
+    assert.match(at.text(), /Will be deleted \(2\)/);
+    assert.match(
+        at.text(),
+        /name of b — A journey made it, but no journey that still exists uses it\./,
+    );
+    assert.match(at.text(), /Will not be deleted \(1\)/);
+    assert.match(at.text(), /name of a — A journey uses it\./);
+    const links = [...at.dialog().querySelectorAll('a')];
+    assert.deepEqual(
+        links.map((link) => [link.textContent, link.getAttribute('href'), link.target, link.rel]),
+        [
+            [
+                'Open journey “journey 1” (version 1, Published)',
+                `${SHELL_ORIGIN}/cloud/#app/Journey%20Builder/%2300000000-0000-4000-8000-000000000001/1`,
+                '_blank',
+                'noopener noreferrer',
+            ],
+            [
+                'Open journey “journey 1” (version 2, Published)',
+                `${SHELL_ORIGIN}/cloud/#app/Journey%20Builder/%2300000000-0000-4000-8000-000000000001/2`,
+                '_blank',
+                'noopener noreferrer',
+            ],
+        ],
+    );
+    assert.equal(at.dialog().querySelector(FIND), null);
+    assert.deepEqual(at.written, []);
+
+    // before the delete, the journeys are read anew, once for all messages
+    await at.press('delete');
+    await settle();
+    assert.deepEqual(pagesAsked(at), [1, 2, 1, 2]);
+    assert.deepEqual(at.written, [`DELETE ${PUSH_MESSAGE}b`, `DELETE ${PUSH_MESSAGE}c`]);
+    assert.match(at.text(), /2 deleted, 0 failed\./);
+});
+
+test('a journey’s message that a journey uses by the time of the delete is not deleted', async () => {
+    const messages = { b: pushMessage('b', { sendInitiator: 3, status: 2 }) };
+    let versions = [journey(1, 1, 'x')];
+    const at = page(PUSH, pushList('b'), push({ messages }), (message) =>
+        journeys(versions)(message),
+    );
+    await at.choose('b');
+    at.dialog().querySelector(FIND).click();
+    await settle();
+    assert.match(at.text(), /Will be deleted \(1\)/);
+    // a journey was published meanwhile
+    versions = [journey(1, 1, 'x'), journey(2, 1, 'b')];
+    await at.press('delete');
+    await settle();
+    assert.deepEqual(at.written, []);
+    assert.match(at.text(), /0 deleted, 0 failed, 1 not deleted because they changed\./);
+    assert.match(at.text(), /A journey uses it/);
+});
+
+test('journeys that were not read completely allow nothing', async () => {
+    const two = [journey(1, 1), journey(2, 1)];
+    const full = Array.from({ length: 50 }, (item, index) => journey(index + 1, 1));
+    const cases = {
+        'no answer': () => {},
+        'not ok': () => ({ isOk: false }),
+        'another business unit': journeys(two, { mid: '8' }),
+        'business unit unknown to the page': journeys(two, { mid: undefined }),
+        'another page size': journeys(two, { pageSize: 25 }),
+        'no count': journeys(two, { count: undefined }),
+        'fewer versions than the count': journeys(two, { count: 3 }),
+        'more versions than the count': journeys(two, { count: 1 }),
+        'a version twice': journeys([journey(1, 1), journey(1, 1)]),
+        'a page that repeats itself': (message) => ({
+            ...journeys(full)({ ...message, page: 1 }),
+            count: 100,
+        }),
+        'a count that changes': (message) => ({
+            ...journeys([...full, journey(99, 1)])(message),
+            count: message.page === 1 ? 51 : 52,
+        }),
+        'an id that is none': journeys([{ ...journey(1, 1), id: 'x' }]),
+        'a version without a kind': journeys([{ ...journey(1, 1), type: undefined }]),
+        // journeys that send once: not counted, and more of them than the list had
+        'single sends not counted': journeys(two, { singleSends: undefined }),
+        'single sends that the list lacks': journeys(two, { singleSends: 1 }),
+        'more single sends in the list than counted': journeys([
+            { ...journey(1, 1), type: 'Quicksend' },
+        ]),
+        'a version that is no number': journeys([{ ...journey(1, 1), version: '1' }]),
+        'messages that are no list': journeys([{ ...journey(1, 1), pushIds: 'b' }]),
+        'a message that is no text': journeys([{ ...journey(1, 1), pushIds: [5] }]),
+        'an address that is not the Marketing Cloud page': journeys(two, {
+            origin: 'https://mc.s7.exacttarget.com.example.org',
+        }),
+    };
+    for (const [name, shell] of Object.entries(cases)) {
+        const messages = { b: pushMessage('b', { sendInitiator: 3, status: 2 }) };
+        const at = page(PUSH, pushList('b'), push({ messages }), shell);
+        await at.choose('b');
+        at.dialog().querySelector(FIND).click();
+        await settle();
+        assert.match(at.text(), /Will not be deleted \(1\)/, name);
+        assert.match(at.text(), /journeys could not be read completely/, name);
+        // it can be tried again
+        assert.ok(at.dialog().querySelector(FIND), name);
+        assert.deepEqual(at.written, [], name);
+    }
+
+    // the frame's own business unit: unknown, and another one after the journeys were read
+    for (const mids of [[undefined], [7, 8]]) {
+        const messages = { b: pushMessage('b', { sendInitiator: 3, status: 2 }) };
+        let reads = 0;
+        const answer = push({ messages });
+        const at = page(
+            PUSH,
+            pushList('b'),
+            (path, method) =>
+                path === 'platform/v1/tokenContext'
+                    ? { body: { organization: { id: mids[Math.min(reads++, mids.length - 1)] } } }
+                    : answer(path, method),
+            journeys([journey(1, 1)]),
+        );
+        await at.choose('b');
+        at.dialog().querySelector(FIND).click();
+        await settle();
+        assert.match(at.text(), /journeys could not be read completely/, String(mids));
+    }
+});
+
+test('a search that is closed stops asking, and no journeys at all let a journey’s message be deleted', async () => {
+    const messages = { b: pushMessage('b', { sendInitiator: 3, status: 2 }) };
+    const many = Array.from({ length: 120 }, (item, index) => journey(index + 1, 1));
+    // the Marketing Cloud page takes its time, so that the dialog is closed while it reads
+    const closed = page(PUSH, pushList('b'), push({ messages }), async (message) => {
+        await tick();
+        return journeys(many)(message);
+    });
+    await closed.choose('b');
+    closed.dialog().querySelector(FIND).click();
+    await tick();
+    await closed.press('cancel');
+    await settle();
+    assert.deepEqual(pagesAsked(closed), [1]);
+    assert.deepEqual(closed.left, []);
+
+    const none = page(PUSH, pushList('b'), push({ messages }), journeys([]));
+    await none.choose('b');
+    none.dialog().querySelector(FIND).click();
+    await settle();
+    assert.match(none.text(), /Will be deleted \(1\)/);
+    await none.press('delete');
+    await settle();
+    // read once for the question and once more for the delete
+    assert.deepEqual(pagesAsked(none), [1, 1]);
+    assert.deepEqual(none.written, [`DELETE ${PUSH_MESSAGE}b`]);
+});
+
+test('a list of journeys that moves between its pages is read again until no version is missing', async () => {
+    const messages = {
+        a: pushMessage('a', { sendInitiator: 3, status: 2 }),
+        b: pushMessage('b', { sendInitiator: 3, status: 2 }),
+    };
+    const all = Array.from({ length: 51 }, (item, index) => journey(index + 1, 1));
+    // the last version names a; in the first read it is missing and another one comes twice
+    all[50] = journey(51, 1, 'a');
+    const moved = [...all.slice(0, 50), all[0]];
+    let reads = 0;
+    const at = page(PUSH, pushList('a', 'b'), push({ messages }), (message) =>
+        journeys(reads++ < 2 ? moved : all)(message),
+    );
+    await at.choose('a', 'b');
+    at.dialog().querySelector(FIND).click();
+    await settle();
+    await settle();
+    assert.deepEqual(pagesAsked(at), [1, 2, 1, 2]);
+    // a is used by the version that the first read missed
+    assert.match(at.text(), /name of a — A journey uses it\./);
+    assert.match(at.text(), /Will be deleted \(1\)/);
+    assert.deepEqual(at.written, []);
+
+    // a list that never comes whole is given up, and a version that differs between two reads too
+    const never = page(PUSH, pushList('b'), push({ messages }), journeys(moved));
+    await never.choose('b');
+    never.dialog().querySelector(FIND).click();
+    await settle();
+    await settle();
+    assert.deepEqual(pagesAsked(never), [1, 2, 1, 2, 1, 2]);
+    assert.match(never.text(), /journeys could not be read completely/);
+    const changed = page(PUSH, pushList('b'), push({ messages }), (message) =>
+        journeys([...all.slice(0, 50), message.page === 1 ? all[0] : journey(1, 1, 'x')])(message),
+    );
+    await changed.choose('b');
+    changed.dialog().querySelector(FIND).click();
+    await settle();
+    assert.match(changed.text(), /journeys could not be read completely/);
+});
+
+test('journeys that cannot be read again before the delete leave a journey’s message alone', async () => {
+    for (const later of [() => ({ isOk: false }), journeys([], { mid: '8' })]) {
+        const messages = { b: pushMessage('b', { sendInitiator: 3, status: 2 }) };
+        let shell = journeys([]);
+        const at = page(PUSH, pushList('b'), push({ messages }), (message) => shell(message));
+        await at.choose('b');
+        at.dialog().querySelector(FIND).click();
+        await settle();
+        assert.match(at.text(), /Will be deleted \(1\)/);
+        shell = later;
+        await at.press('delete');
+        await settle();
+        assert.deepEqual(at.written, []);
+        assert.match(at.text(), /journeys could not be read completely/);
+    }
+});
+
+test('what was read for the question is not used for the delete', async () => {
+    // a was sent by hand when the question was asked, and is a journey's by the time of the delete
+    const messages = { a: pushMessage('a'), b: pushMessage('b', { sendInitiator: 3, status: 2 }) };
+    const at = page(PUSH, pushList('a', 'b'), push({ messages }), journeys([journey(1, 1, 'b')]));
+    await at.choose('a', 'b');
+    at.dialog().querySelector(FIND).click();
+    await settle();
+    assert.match(at.text(), /Will be deleted \(1\)/);
+    messages.a = pushMessage('a', { sendInitiator: 3, status: 2 });
+    await at.press('delete');
+    await settle();
+    // the journeys of the search would call a unused; they are gone, so a is refused
+    assert.deepEqual(at.written, []);
+    assert.deepEqual(pagesAsked(at), [1]);
+    assert.match(
+        at.text(),
+        /name of a — Not deleted, because it changed meanwhile\. A journey made it\./,
+    );
+});
+
+test('the list is loaded again when the panel was closed after a delete of its channel', async () => {
+    const closedPush = { type: PANEL_CLOSED, kind: 'push' };
+    const at = page(PUSH, pushList('a'), push({ messages: { a: pushMessage('a') } }));
+    // another channel, another extension, another message
+    at.hear({ type: PANEL_CLOSED, kind: 'sms' });
+    at.hear(closedPush, { id: 'another-extension' });
+    // sent by the script of a page, not passed on by the extension
+    at.hear(closedPush, { id: 'id', tab: { id: 7 } });
+    at.hear({ type: PANEL_OPEN, kind: 'push' });
+    assert.deepEqual(at.left, []);
+    assert.deepEqual(at.hear(closedPush), [false]);
+    assert.deepEqual(at.left, ['reload']);
+    // not under an open dialog of the script, which reads what it needs itself
+    await at.choose('a');
+    at.hear(closedPush);
+    assert.deepEqual(at.left, ['reload']);
+
+    // MobileConnect's list for SMS; the page of one message has no list
+    const connect = page(CONNECT, smsList('1'));
+    connect.hear(closedPush);
+    assert.deepEqual(connect.left, []);
+    connect.hear({ type: PANEL_CLOSED, kind: 'sms' });
+    assert.deepEqual(connect.left, ['reload']);
+    const one = page(`${HOST}/mobile/#!/message/view/1`, DETAILS);
+    one.hear({ type: PANEL_CLOSED, kind: 'sms' });
+    assert.deepEqual(one.left, []);
+});
+
+/**
+ * Writes the id of a MobileConnect message as the API does, and as a journey names the message.
+ *
+ * @param {number} number which message
+ * @param {number} [kind] what the id is for: 78 in MobileConnect's own list, 625 in a journey
+ * @returns {string} the id
+ */
+const smsId = (number, kind = 78) => btoa(`${number}:${kind}:0`).replaceAll('=', '');
+/**
+ * Builds an SMS message that a journey made, as it was seen live: active, with the id of a
+ * triggered send definition.
+ *
+ * @param {number} number which message
+ * @returns {object} the message
+ */
+const journeySms = (number) =>
+    smsMessage(smsId(number), {
+        sendMethod: 'INTERACTION',
+        status: 'Active/Scheduled',
+        smsTriggeredSendDefinitionId: OWNER,
+    });
+
+test('the judgement of a journey’s SMS message follows what the journeys say, by the number in its id', () => {
+    const { judge } = page(CONNECT, '');
+    const made = journeySms(54);
+    const user = { name: 'journey 1', version: 1, status: 'Published', href: 'https://x' };
+    const read = (smsUsers) => ({ isComplete: true, users: new Map(), smsUsers });
+
+    const unread = judge('sms', smsId(54), made);
+    assert.equal(unread.isAllowed, false);
+    assert.match(unread.reason, /^A journey made it\./);
+    assert.equal(unread.isFindable, true);
+    // never asks for the transactional definitions: a journey's message holds such an id too
+    assert.equal(unread.needs, undefined);
+    for (const journeysRead of [{ isComplete: false }, { isComplete: true, users: new Map() }]) {
+        const verdict = judge('sms', smsId(54), made, undefined, journeysRead);
+        assert.equal(verdict.isAllowed, false);
+        assert.match(verdict.reason, /could not be read completely/);
+        assert.equal(verdict.isFindable, true);
+    }
+    // a journey names the message with another kind in the id; the number decides
+    const none = { isComplete: true, ids: new Set() };
+    const used = judge('sms', smsId(54), made, none, read(new Map([['54', [user]]])));
+    assert.equal(used.isAllowed, false);
+    assert.match(used.reason, /A journey uses it/);
+    assert.deepEqual([...used.users], [user]);
+    // not the same number, also not one that only starts or ends with it
+    for (const other of ['5', '4', '540', '154']) {
+        const others = read(new Map([[other, [user]]]));
+        assert.deepEqual(
+            judge('sms', smsId(54), made, none, others),
+            {
+                isAllowed: true,
+                name: `name of ${smsId(54)}`,
+                isJourneyMade: true,
+                note: 'A journey made it, but no journey that still exists uses it.',
+            },
+            other,
+        );
+    }
+    // used by no journey, it is still held against the transactional definitions, by the id it holds
+    const free = read(new Map());
+    const asks = judge('sms', smsId(54), made, undefined, free);
+    assert.equal(asks.isAllowed, false);
+    assert.equal(asks.needs, true);
+    assert.equal(judge('sms', smsId(54), made, { isComplete: false }, free).isAllowed, false);
+    const owned = judge(
+        'sms',
+        smsId(54),
+        made,
+        { isComplete: true, ids: new Set([OWNER]), keys: new Map([[OWNER, 'welcome']]) },
+        free,
+    );
+    assert.equal(owned.isAllowed, false);
+    assert.match(owned.reason, /It belongs to a transactional SMS message/);
+    assert.deepEqual([...owned.keys], ['welcome']);
+    // without such an id there is nothing to hold against them
+    assert.equal(
+        judge('sms', smsId(54), { ...made, smsTriggeredSendDefinitionId: NONE }, undefined, free)
+            .isAllowed,
+        true,
+    );
+    // an id of another form cannot be held against the journeys
+    for (const id of [
+        '5',
+        'abc',
+        btoa('54:78'),
+        btoa('x:78:0'),
+        btoa('54:78:0:1'),
+        'NTQ6Nzg6MA!',
+    ]) {
+        const verdict = judge('sms', id, { ...made, id }, undefined, read(new Map()));
+        assert.equal(verdict.isAllowed, false, id);
+        assert.match(verdict.reason, /its id has another form/, id);
+        assert.equal(verdict.isFindable, undefined, id);
+    }
+});
+
+test('MobileConnect: "Find the journey" links the journey of an SMS message and lets one without a journey be deleted', async () => {
+    const used = smsId(54);
+    const free = smsId(55);
+    const messages = { [used]: journeySms(54), [free]: journeySms(55) };
+    const versions = [
+        { ...journey(1, 3), smsIds: [smsId(54, 625)] },
+        // a push message with the number of the free one is another thing
+        journey(2, 1, smsId(55)),
+    ];
+    const at = page(CONNECT, smsList(used, free), sms({ messages }), journeys(versions));
+    await at.choose(used, free);
+    assert.match(at.text(), /Will not be deleted \(2\)/);
+    assert.deepEqual(at.sent, []);
+    // the transactional definitions are not read while the journey refuses the message
+    assert.deepEqual(
+        at.calls.filter((call) => call.includes(SMS_DEFINITIONS)),
+        [],
+    );
+    at.dialog().querySelector(FIND).click();
+    await settle();
+    assert.deepEqual(pagesAsked(at), [1]);
+    assert.match(at.text(), /Will be deleted \(1\)/);
+    assert.match(at.text(), /A journey made it, but no journey that still exists uses it\./);
+    const links = [...at.dialog().querySelectorAll('a')];
+    assert.deepEqual(
+        links.map((link) => [link.textContent, link.getAttribute('href')]),
+        [
+            [
+                'Open journey “journey 1” (version 3, Published)',
+                `${SHELL_ORIGIN}/cloud/#app/Journey%20Builder/%2300000000-0000-4000-8000-000000000001/3`,
+            ],
+        ],
+    );
+    await at.press('delete');
+    await settle();
+    assert.deepEqual(pagesAsked(at), [1, 1]);
+    assert.deepEqual(at.written, [`DELETE ${SMS_MESSAGE}${free}`]);
+
+    // an activity that names its SMS message in another form leaves the journeys unread
+    const odd = page(
+        CONNECT,
+        smsList(free),
+        sms({ messages: { [free]: journeySms(55) } }),
+        journeys([{ ...journey(1, 1), smsIds: ['not an id'] }]),
+    );
+    await odd.choose(free);
+    odd.dialog().querySelector(FIND).click();
+    await settle();
+    assert.match(odd.text(), /journeys could not be read completely/);
+    // and so do journeys that say nothing of SMS messages at all
+    const silent = page(
+        CONNECT,
+        smsList(free),
+        sms({ messages: { [free]: journeySms(55) } }),
+        journeys([{ ...journey(1, 1), smsIds: undefined }]),
+    );
+    await silent.choose(free);
+    silent.dialog().querySelector(FIND).click();
+    await settle();
+    assert.match(silent.text(), /journeys could not be read completely/);
+});
+
+test('MobileConnect: the link of a refused transactional SMS message opens the panel on it', async () => {
+    const one = definition('welcome', OWNER);
+    const at = await asked({
+        messages: heldByOwner(),
+        definitions: [one.row],
+        details: { welcome: one.detail },
+    });
+    assert.match(at.text(), /It belongs to a transactional SMS message/);
+    const links = [...at.dialog().querySelectorAll(OPEN)];
+    assert.deepEqual(
+        links.map((link) => link.textContent),
+        ['Open the transactional message'],
+    );
+    links[0].click();
+    await tick();
+    assert.deepEqual(at.sent, [{ type: PANEL_OPEN, kind: 'sms', key: 'welcome' }]);
+    assert.equal(at.dialog(), null);
+    assert.deepEqual(at.written, []);
+});
+
+test('MobileConnect: a journey’s SMS message that no journey uses is refused when a transactional message owns it', async () => {
+    const id = smsId(55);
+    const one = definition('welcome', OWNER);
+    const at = page(
+        CONNECT,
+        smsList(id),
+        sms({
+            messages: { [id]: journeySms(55) },
+            definitions: [one.row],
+            details: { welcome: one.detail },
+        }),
+        journeys([]),
+    );
+    await at.choose(id);
+    at.dialog().querySelector(FIND).click();
+    await settle();
+    assert.match(at.text(), /Will not be deleted \(1\)/);
+    assert.match(at.text(), /It belongs to a transactional SMS message/);
+    assert.ok(at.dialog().querySelector(OPEN));
+    assert.deepEqual(at.written, []);
 });

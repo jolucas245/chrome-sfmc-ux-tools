@@ -7,9 +7,11 @@ import {
     AMPSCRIPT,
     BROWSER_KINDS,
     DOCUMENT_URI,
+    IS_NEXT,
     JAVASCRIPT,
     SETTINGS,
     SSJS,
+    isInHandlebars,
     languageAt,
     scriptsOnly,
     ssjsOnly,
@@ -20,6 +22,8 @@ import { askTypescript } from '../typescript.js';
 const DETAIL_LENGTH = 60;
 // the typed start of an AMPscript name, including the @ or @@ of a variable
 const WORD_BEFORE_CURSOR = /@{0,2}\w*$/;
+// what starts a Handlebars helper that has a block, as in "{{#if"
+const BLOCK_SIGN = '#';
 // the typed start of an SSJS name with the objects it belongs to, like "Platform.Function.Loo"
 const CHAIN_BEFORE_CURSOR = /(?:[\w$]+\.)*[\w$]*$/;
 // the typed start of a plain JavaScript name
@@ -254,7 +258,8 @@ function javascriptHints(text, position, line, offset, isBrowser) {
 }
 
 /**
- * AMPscript suggestions at the cursor: those that start with the word typed so far. A function
+ * AMPscript suggestions at the cursor, and in Marketing Cloud Next those for Handlebars inside
+ * `{{ }}`: those that start with the word typed so far. A function
  * is inserted as its name with the opening bracket.
  *
  * @param {string} text whole document
@@ -263,22 +268,42 @@ function javascriptHints(text, position, line, offset, isBrowser) {
  * @returns {{list: object[], typed: string}} suggestions and the typed text they replace
  */
 function ampscriptHints(text, position, line) {
-    const typed = WORD_BEFORE_CURSOR.exec(line.slice(0, position.character))[0];
-    const needle = typed.toLowerCase();
+    const before = line.slice(0, position.character);
+    const word = WORD_BEFORE_CURSOR.exec(before)[0];
+    const start = before.slice(0, before.length - word.length);
+    const isHandlebars = IS_NEXT && isInHandlebars(before);
+    // "{{#i": the sign belongs to what is typed, and only helpers with a block fit
+    const isBlock = isHandlebars && start.endsWith(BLOCK_SIGN);
+    const needle = word.toLowerCase();
     const list = sfmcLanguageService
         .getCompletions(
             { text, languageId: AMPSCRIPT, uri: DOCUMENT_URI },
             { line: position.line, character: position.character },
             SETTINGS,
         )
-        .filter((item) => item.label.toLowerCase().startsWith(needle))
-        .map((item) =>
-            toSuggestion(
-                item,
-                item.kind === KIND_FUNCTION ? item.label + '(' : untilPlaceholder(item),
-            ),
-        );
-    return { list, typed };
+        .filter(
+            (item) =>
+                item.label.toLowerCase().startsWith(needle) &&
+                (!isBlock || String(item.insertText ?? '').startsWith(BLOCK_SIGN)),
+        )
+        .map((item) => toSuggestion(item, insertion(item)));
+    return { list, typed: isBlock ? BLOCK_SIGN + word : word };
+}
+
+/**
+ * Tells what picking a suggestion of the language service inserts. A function is called with a
+ * bracket, so its name and the bracket are inserted; a Handlebars helper is followed by a blank,
+ * and anything else is inserted up to where its first placeholder would start.
+ *
+ * @param {object} item completion item of the language service
+ * @returns {string} text to insert
+ */
+function insertion(item) {
+    const text = item.insertText;
+    // a function without a snippet is still one
+    const isCall =
+        text === undefined ? item.kind === KIND_FUNCTION : text.startsWith(item.label + '(');
+    return isCall ? item.label + '(' : untilPlaceholder(item);
 }
 
 /**
@@ -474,6 +499,13 @@ export function completionsAt(text, position) {
         for (const entry of items) {
             const bracket = entry.text.indexOf('(');
             entry.text = bracket === -1 ? entry.text : entry.text.slice(0, bracket);
+        }
+    }
+    // the same for the blank after a Handlebars helper: one that is there is not doubled
+    const isHandlebars = IS_NEXT && isInHandlebars(line.slice(0, position.character));
+    if (isHandlebars && line[end] === ' ') {
+        for (const entry of items) {
+            entry.text = entry.text.endsWith(' ') ? entry.text.slice(0, -1) : entry.text;
         }
     }
     if (!items.length) {

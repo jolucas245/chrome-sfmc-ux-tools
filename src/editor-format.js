@@ -65,8 +65,16 @@ const OWN_EDITORS = '[data-sfmc-ux-tools-format]';
 const OWN_FORMATTED = 'on';
 // the extension's own button that sends the form such an editor stands in
 const OWN_SAVE_BUTTON = '[data-sfmc-ux-tools-format-save]';
-// time for the page to take note of the formatted content before it saves
+// time for the page to take note of the formatted content before it saves, where the page does
+// not say when it has
 const SETTLE_TIME = 300;
+// Content Builder saves what it took over from its editor, not what the editor shows, and takes
+// a change over only a moment after it was made. It says that it has with this event of its
+// jQuery, at this element around the editor
+const TAKEN_EVENT = 'cloudeditor:change';
+const TAKING_EDITOR = '.cb-editor';
+// a save never waits longer than this for the page to take the content over
+const TAKE_TIME_LIMIT = 3000;
 // a save never waits longer than this for the formatting
 const FORMAT_TIME_LIMIT = 5000;
 const IS_MAC = /mac/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
@@ -78,7 +86,9 @@ const busy = new WeakSet();
 // here
 const editors = new WeakSet();
 const ownEditors = new WeakSet();
-const state = { isSaving: false, isPending: false };
+const state = { isSaving: false, isPending: false, isListening: false };
+// the editors whose content the page has yet to take over, each with what waits for that
+const untaken = new WeakMap();
 
 /**
  * Tells the user why the content was not formatted, in a box at the top of the editor that
@@ -299,20 +309,120 @@ function saveButton(selector = SAVE_BUTTON) {
 }
 
 /**
+ * Tells whether the page says when it has taken over the content of an editor.
+ *
+ * @param {object} cm CodeMirror instance
+ * @returns {boolean} true for an editor of Content Builder on a page that is listened to
+ */
+function isAnnounced(cm) {
+    return state.isListening && Boolean(cm.getWrapperElement().closest(TAKING_EDITOR));
+}
+
+/**
+ * Notes that the page has taken over the content of the editors inside an element, and lets
+ * go on what waited for that.
+ *
+ * @param {Element} element the element the page said it about
+ */
+function noteTaken(element) {
+    for (const cm of editorsOnPage()) {
+        if (!element.contains?.(cm.getWrapperElement())) {
+            continue;
+        }
+        const waiting = untaken.get(cm) ?? [];
+        untaken.delete(cm);
+        for (const goOn of waiting) {
+            goOn();
+        }
+    }
+}
+
+/**
+ * Starts to keep track of whether the page has taken over what an editor shows: a change makes
+ * the content one the page has yet to take over, the page's own event makes it taken over.
+ *
+ * @param {object} cm CodeMirror instance
+ */
+function watchTaking(cm) {
+    const { jQuery } = globalThis;
+    if (typeof jQuery === 'function' && !state.isListening) {
+        // the page tells it through its jQuery only; no event of the browser comes with it
+        jQuery(document).on(TAKEN_EVENT, (event) => {
+            try {
+                noteTaken(event.target);
+            } catch (ex) {
+                report(ex);
+            }
+        });
+        state.isListening = true;
+    }
+    cm.on('change', () => {
+        if (!untaken.has(cm) && isAnnounced(cm)) {
+            untaken.set(cm, new Set());
+        }
+    });
+}
+
+/**
+ * Waits until the page has taken over what an editor shows. An editor the page stays silent
+ * about is not waited for again.
+ *
+ * @param {object} cm CodeMirror instance
+ * @returns {Promise.<void>} settled at once if there is nothing to wait for
+ */
+async function taken(cm) {
+    const waiting = untaken.get(cm);
+    if (!waiting) {
+        return;
+    }
+    const { promise, resolve } = Promise.withResolvers();
+    waiting.add(resolve);
+    const timer = setTimeout(() => {
+        // whatever else waits for the same takeover has waited long enough as well
+        if (untaken.get(cm) === waiting) {
+            untaken.delete(cm);
+        }
+        for (const goOn of waiting) {
+            goOn();
+        }
+    }, TAKE_TIME_LIMIT);
+    await promise;
+    clearTimeout(timer);
+}
+
+/**
+ * Formats an editor of Marketing Cloud for a save, and waits until the page has what the editor
+ * shows then.
+ *
+ * @param {object} cm CodeMirror instance
+ * @returns {Promise.<boolean>} true if the page said that it has the content; false where it does not say such things
+ */
+async function formatForSave(cm) {
+    await formatEditor(cm);
+    if (!isAnnounced(cm)) {
+        return false;
+    }
+    await taken(cm);
+    return true;
+}
+
+/**
  * Formats the editors of the page and then lets the save go ahead that was held back for it.
  * Whatever happens to the formatting, the save is never lost: it does not wait for a formatter
  * that takes too long, and if the page has redrawn its button meanwhile, the new one is clicked.
  *
- * @param {(() => Promise.<void>)[]} formats each formats one editor
+ * @param {(() => Promise.<boolean | void>)[]} formats each formats one editor, and gives true if it has also waited for the page to take the content over
  * @param {() => void} clickAgain clicks the save button that was held back
  */
 async function formatThenSave(formats, clickAgain) {
     try {
-        await Promise.race([
+        const haveTaken = await Promise.race([
             Promise.all(formats.map((formatOne) => formatOne())),
             new Promise((resolve) => setTimeout(resolve, FORMAT_TIME_LIMIT)),
         ]);
-        await new Promise((resolve) => setTimeout(resolve, SETTLE_TIME));
+        if (!haveTaken?.every((hasTaken) => hasTaken === true)) {
+            await new Promise((resolve) => setTimeout(resolve, SETTLE_TIME));
+        }
     } catch (ex) {
         report(ex);
     }
@@ -332,7 +442,7 @@ async function formatThenSave(formats, clickAgain) {
  *
  * @param {MouseEvent} event the click
  * @param {string} selector which buttons are meant
- * @param {(button: Element) => (() => Promise.<void>)[]} formatsFor what formats the editors the button is about, one each; none lets the click through
+ * @param {(button: Element) => (() => Promise.<boolean | void>)[]} formatsFor what formats the editors the button is about, one each; none lets the click through
  * @param {(button: Element) => void} clickAgain clicks the button once the editors are formatted
  */
 function formatBeforeClick(event, selector, formatsFor, clickAgain) {
@@ -383,7 +493,7 @@ function onClick(event) {
                 .filter(
                     (cm) => editors.has(cm) && canFormat(cm) && isOnShow(cm.getWrapperElement()),
                 )
-                .map((cm) => () => formatEditor(cm)),
+                .map((cm) => () => formatForSave(cm)),
         (button) => {
             const selector = `[data-action="${button.dataset.action}"]`;
             // "Save and Exit" sits in a menu that has closed again by now, so a hidden one will do
@@ -427,7 +537,9 @@ function onOwnClick(event) {
 }
 
 /**
- * Saves the content the way a click on Marketing Cloud's Save button does.
+ * Saves the content the way a click on Marketing Cloud's Save button does, once the page has
+ * taken over what was typed last: the key is pressed right after typing, and a save that does
+ * not wait would be one without the last words.
  *
  * @param {object} cm CodeMirror instance
  * @returns {unknown} CodeMirror's sign to go on with the key if there is no Save button
@@ -437,7 +549,19 @@ function save(cm) {
     if (!button) {
         return cm.constructor.Pass;
     }
-    button.click();
+    if (!untaken.has(cm)) {
+        button.click();
+        return;
+    }
+    (async () => {
+        try {
+            await taken(cm);
+            // the page may have redrawn its button meanwhile
+            (button.isConnected ? button : saveButton())?.click();
+        } catch (ex) {
+            report(ex);
+        }
+    })();
     return;
 }
 
@@ -475,6 +599,7 @@ function registerFormat(cm) {
         return;
     }
     editors.add(cm);
+    watchTaking(cm);
     cm.addKeyMap({ 'Shift-Alt-F': formatOnKey, 'Ctrl-S': save, 'Cmd-S': save });
     addButton(cm);
 }

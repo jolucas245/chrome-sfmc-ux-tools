@@ -1,0 +1,26 @@
+<!doctype html>
+<!--
+    SFMC UX Tools: demo page of the Records tab of a data extension in Contact Builder, for the
+    pictures of the README. It loads the built record search scripts from dist/extension the way a
+    Contact Builder page gets them, around a Records tab drawn here with made-up content only. Open
+    it through `npm run screenshots`, which serves the repository locally.
+
+    record-search.js of this folder moves the address to the one of Contact Builder and stands in
+    for its server before the built scripts load, so every address here starts at the root.
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>SFMC UX Tools: Contact Builder records demo (made-up content)</title>
+        <link rel="icon" href="data:," />
+        <link rel="stylesheet" href="/dist/extension/record-search.css" />
+        <link rel="stylesheet" href="/demo/demo.css" />
+        <link rel="stylesheet" href="/demo/record-search.css" />
+        <script src="/demo/record-search.js"></script>
+        <script src="/dist/extension/record-search-rule.js"></script>
+        <script src="/dist/extension/record-search.js"></script>
+    </head>
+    <body class="page-records">
+        <main id="app"></main>
+    </body>
+</html>

@@ -121,6 +121,22 @@
 .sfmc-ux-tools-mobile-delete-said {
     color: #5c5c5c;
 }
+/* what a refused message offers to go on with: links, also where they are buttons */
+.sfmc-ux-tools-mobile-delete-link {
+    background: none;
+    border: 0;
+    color: #0b5cab;
+    cursor: pointer;
+    display: inline;
+    font: inherit;
+    margin: 0;
+    padding: 0;
+    text-decoration: underline;
+}
+.sfmc-ux-tools-mobile-delete-link:hover,
+.sfmc-ux-tools-mobile-delete-link:focus-visible {
+    color: #014486;
+}
 .sfmc-ux-tools-mobile-delete-warning {
     border-left: 3px solid #ba0517;
     margin: 8px 0;

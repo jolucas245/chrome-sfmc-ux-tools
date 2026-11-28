@@ -3,7 +3,7 @@
  * the code editor, and resting the mouse on it says why.
  */
 import { isInMode, report } from './shared.js';
-import { check, checkTypes } from './core/diagnostics.js';
+import { ERROR, WARNING, check, checkTypes, removedScripts } from './core/diagnostics.js';
 import { READY_EVENT, hasTypescript } from './typescript.js';
 
 export const CHECK_DELAY = 500;
@@ -15,6 +15,35 @@ const checked = new WeakMap();
 // what TypeScript found in each editor, and the content it was found in
 const typed = new WeakMap();
 const state = { isWaitingForTypescript: false };
+// Content Builder marks the element around its editor with the type of what is edited, and with
+// each type above that one: "editor-mode-htmlemail editor-mode-message editor-mode-asset"
+const TYPED_EDITOR = '.cloud-editor';
+// the types whose content loses its scripts for the browser when it is saved, and how serious
+// that is: an email is never shown with them, a block may have been meant for a CloudPage
+const SCRIPT_LOSERS = [
+    ['editor-mode-message', ERROR],
+    ['editor-mode-template', ERROR],
+    ['editor-mode-block', WARNING],
+];
+
+/**
+ * Tells how serious a script for the browser is in what an editor shows.
+ *
+ * @param {object} cm CodeMirror instance
+ * @returns {number} ERROR or WARNING where Marketing Cloud removes such a script on save; 0 where it keeps it, as in CloudPages, and where the page does not say what is edited
+ */
+function scriptLoss(cm) {
+    // the outermost one says what is saved: a block that is edited inside an email is part of
+    // the email, one inside a landing page part of the page
+    let outer = null;
+    let inner = cm.getWrapperElement().closest(TYPED_EDITOR);
+    while (inner) {
+        outer = inner;
+        inner = inner.parentElement?.closest(TYPED_EDITOR) ?? null;
+    }
+    const loser = SCRIPT_LOSERS.find(([name]) => outer?.classList.contains(name));
+    return loser ? loser[1] : 0;
+}
 
 /**
  * Converts a place of the language service into one of CodeMirror.
@@ -36,11 +65,17 @@ function toPlace(position) {
  */
 function update(cm, isWithTypes) {
     try {
-        const now = { doc: cm.getDoc(), generation: cm.changeGeneration(), isInMode: isInMode(cm) };
+        const now = {
+            doc: cm.getDoc(),
+            generation: cm.changeGeneration(),
+            isInMode: isInMode(cm),
+            scriptLoss: scriptLoss(cm),
+        };
         const isSame = (last) =>
             last?.doc === now.doc &&
             last.generation === now.generation &&
-            last.isInMode === now.isInMode;
+            last.isInMode === now.isInMode &&
+            last.scriptLoss === now.scriptLoss;
         const types = typed.get(cm);
         const isTypesCurrent = isSame(types) && types.hasTypescript === hasTypescript();
         // nothing to do for content that was checked already: the same document, unchanged, in the
@@ -60,6 +95,9 @@ function update(cm, isWithTypes) {
             // each check limits what it reports by itself; a limit over all of them together
             // would let the many findings of one language hide those of the other
             list.push(...known, ...further);
+            if (now.scriptLoss) {
+                list.push(...removedScripts(text, now.scriptLoss));
+            }
             if (isWithTypes) {
                 typed.set(cm, { ...now, hasTypescript: hasTypescript(), list: further });
             }

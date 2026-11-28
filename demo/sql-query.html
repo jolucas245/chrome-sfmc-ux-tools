@@ -1,0 +1,58 @@
+<!doctype html>
+<!--
+    SFMC UX Tools: demo page of the dialog of a SQL query activity, for the pictures of the README.
+    It loads Ace 1.4.12, the editor of Automation Studio, and the built scripts from
+    dist/extension the way an Automation Studio page gets them, in a dialog drawn here with a
+    made-up query only. Marketing Cloud's check of the query is answered in the page
+    (sql-query.js). Open it through `npm run screenshots`, which serves the repository locally,
+    with `#ActivityModal/300/new` at the end of its address.
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>SFMC UX Tools: SQL query activity demo (made-up content)</title>
+        <link rel="icon" href="data:," />
+        <link rel="stylesheet" href="/dist/extension/editor-highlight.css" />
+        <link rel="stylesheet" href="demo.css" />
+        <link rel="stylesheet" href="sql-query.css" />
+        <script src="chrome-stub.js"></script>
+        <script src="/dist/extension/editor-theme.js"></script>
+        <script src="/node_modules/ace-builds/src-noconflict/ace.js"></script>
+        <script src="/node_modules/ace-builds/src-noconflict/mode-sql.js"></script>
+    </head>
+    <body class="page-dialog">
+        <div
+            class="modal demo-dialog demo-query-dialog"
+            role="dialog"
+            aria-labelledby="dialog-title"
+        >
+            <header class="demo-dialog-header">
+                <h1 id="dialog-title">New SQL Query Activity</h1>
+                <p>Query</p>
+            </header>
+            <div class="demo-dialog-body">
+                <div class="demo-query-toolbar">
+                    <span class="demo-query-label">SQL Query</span>
+                    <button
+                        type="button"
+                        id="queryValidateBtn"
+                        class="btn btn-default validate pull-right"
+                    >
+                        Validate Syntax
+                    </button>
+                </div>
+                <div id="queryEditor"></div>
+            </div>
+            <footer class="demo-dialog-footer modal-footer">
+                <button type="button" class="demo-button">Cancel</button>
+                <button type="button" class="demo-button demo-button-brand accept">Next</button>
+            </footer>
+        </div>
+        <script src="sql-query.js"></script>
+        <script src="pointer.js"></script>
+        <script src="/dist/extension/language-data.js"></script>
+        <script src="/dist/extension/editor-highlight.js"></script>
+        <script src="/dist/extension/editor-language.js"></script>
+        <script src="/dist/extension/editor-format.js"></script>
+    </body>
+</html>

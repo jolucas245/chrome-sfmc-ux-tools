@@ -1,0 +1,160 @@
+/*
+ * SFMC UX Tools — demo page of the Records tab of a data extension in Contact Builder: a plain
+ * look close to the one of Contact Builder, so that the picture shows the search of the extension.
+ */
+.page-records #app {
+    box-sizing: border-box;
+    width: 900px;
+    padding: 24px;
+    color: #16325c;
+    font-size: 13px;
+}
+
+.demo-records-header h1 {
+    margin: 0 0 16px;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.demo-records-kind {
+    margin: 0 0 2px;
+    color: #54698d;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+.demo-records-tabs {
+    display: flex;
+    gap: 24px;
+    border-bottom: 1px solid #d8dde6;
+}
+
+.demo-records-tabs span {
+    padding: 8px 2px;
+    color: #54698d;
+}
+
+.demo-records-tabs .is-active {
+    border-bottom: 3px solid #0070d2;
+    color: #16325c;
+    font-weight: 600;
+}
+
+.repeater-records {
+    padding: 16px;
+    border: 1px solid #d8dde6;
+    border-top: none;
+    background: #ffffff;
+}
+
+.edit-de-grid-select {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.de-search-dropdown .btn-group {
+    position: relative;
+}
+
+.edit-de-grid-select .btn {
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid #d8dde6;
+    border-radius: 4px;
+    background: #ffffff;
+    color: #0070d2;
+    font: inherit;
+}
+
+.de-search-dropdown .dropdown-toggle {
+    min-width: 150px;
+    text-align: left;
+    color: #16325c;
+}
+
+.de-search-dropdown .caret {
+    float: right;
+    margin: 13px 0 0 8px;
+    border-top: 5px solid #54698d;
+    border-right: 4px solid transparent;
+    border-left: 4px solid transparent;
+}
+
+.de-search-dropdown .dropdown-menu {
+    display: none;
+    position: absolute;
+    z-index: 10;
+    top: 100%;
+    left: 0;
+    margin: 2px 0 0;
+    padding: 4px 0;
+    list-style: none;
+    border: 1px solid #d8dde6;
+    border-radius: 4px;
+    background: #ffffff;
+    box-shadow: 0 2px 6px rgb(0 0 0 / 16%);
+}
+
+.de-search-dropdown .open > .dropdown-menu {
+    display: block;
+}
+
+.de-search-dropdown .dropdown-menu > li > a {
+    display: block;
+    padding: 6px 14px;
+    color: #16325c;
+    text-decoration: none;
+}
+
+.de-search-dropdown .dropdown-menu > li > a:hover {
+    background: #f4f6f9;
+}
+
+.repeater-search .input-group {
+    display: flex;
+}
+
+.repeater-search .form-control {
+    box-sizing: border-box;
+    width: 260px;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid #d8dde6;
+    border-right: none;
+    border-radius: 4px 0 0 4px;
+    font: inherit;
+}
+
+.repeater-search .btn {
+    border-radius: 0 4px 4px 0;
+}
+
+/* Chrome fills the id of the extension into the address of its icon; here it is the icon of the build */
+html .sfmc-ux-tools-record-search-icon {
+    background-image: url('/dist/extension/icons/icon16.png');
+}
+
+.demo-records-count {
+    margin: 14px 0 8px;
+    color: #54698d;
+}
+
+.demo-records-grid {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.demo-records-grid th,
+.demo-records-grid td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #e8ebf0;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.demo-records-grid th {
+    background: #f4f6f9;
+    color: #54698d;
+    font-weight: 600;
+}

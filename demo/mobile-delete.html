@@ -1,0 +1,86 @@
+<!doctype html>
+<!--
+    SFMC UX Tools: demo page of the list of messages in MobileConnect, for the pictures of the
+    README. demo/mobile-delete.js moves the address to MobileConnect's path and answers the
+    script's requests with made-up messages; the built script from dist/extension then adds its
+    checkboxes, its button and its dialog. Every address is absolute, because the address of the
+    page changes before the script loads. Open it through `npm run screenshots`, which serves the
+    repository locally.
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>SFMC UX Tools: MobileConnect demo (made-up content)</title>
+        <link rel="icon" href="data:," />
+        <link rel="stylesheet" href="/demo/demo.css" />
+        <link rel="stylesheet" href="/demo/mobile-delete.css" />
+        <link rel="stylesheet" href="/dist/extension/mobile-delete.css" />
+        <script src="/demo/chrome-stub.js"></script>
+        <script src="/demo/mobile-delete.js"></script>
+    </head>
+    <body class="page-mobile">
+        <header class="demo-mobile-bar">MobileConnect</header>
+        <main class="demo-mobile-main">
+            <!-- the list, as far as the script looks at it -->
+            <div id="messagesGridRepeater" class="demo-mobile-repeater">
+                <div class="repeater-header">
+                    <div class="repeater-header-left">
+                        <span class="demo-mobile-title">Messages</span>
+                    </div>
+                    <div class="repeater-header-right">
+                        <span class="demo-mobile-count">6 items</span>
+                    </div>
+                </div>
+                <table class="demo-mobile-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Type</th>
+                            <th>Last Modified</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><a data-id="101" data-status="1">Welcome_SMS_Demo</a></td>
+                            <td>Draft</td>
+                            <td>Outbound</td>
+                            <td>11/02/2026</td>
+                        </tr>
+                        <tr>
+                            <td><a data-id="102" data-status="1">Spring_Sale_Teaser</a></td>
+                            <td>Draft</td>
+                            <td>Outbound</td>
+                            <td>11/05/2026</td>
+                        </tr>
+                        <tr>
+                            <td><a data-id="103" data-status="2">Old_Coupon_Reminder</a></td>
+                            <td>Inactive</td>
+                            <td>Outbound</td>
+                            <td>11/09/2026</td>
+                        </tr>
+                        <tr>
+                            <td><a data-id="104" data-status="3">Order_Confirmation_Demo</a></td>
+                            <td>Active</td>
+                            <td>API Trigger</td>
+                            <td>11/12/2026</td>
+                        </tr>
+                        <tr>
+                            <td><a data-id="105" data-status="3">Journey_Welcome_Demo</a></td>
+                            <td>Active</td>
+                            <td>Journey</td>
+                            <td>11/16/2026</td>
+                        </tr>
+                        <tr>
+                            <td><a data-id="106" data-status="3">Appointment_Reminder</a></td>
+                            <td>Active</td>
+                            <td>Outbound</td>
+                            <td>11/18/2026</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+        <script src="/dist/extension/mobile-delete.js"></script>
+    </body>
+</html>

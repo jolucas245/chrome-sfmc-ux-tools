@@ -1,0 +1,35 @@
+<!doctype html>
+<!--
+    SFMC UX Tools: demo page of the Content tab of a free form block in Content Builder, for the
+    pictures of the README. A stand-in for its text editor (CKEditor 4, which edits a frame) holds
+    made-up text with a typed tag, and the built scripts of the extension look at it unchanged.
+    Open it through `npm run screenshots`, which serves the repository locally.
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>SFMC UX Tools: text editor demo (made-up content)</title>
+        <link rel="icon" href="data:," />
+        <link rel="stylesheet" href="/dist/extension/editor-highlight.css" />
+        <link rel="stylesheet" href="demo.css" />
+        <link rel="stylesheet" href="rich-text.css" />
+        <script src="chrome-stub.js"></script>
+    </head>
+    <body>
+        <main id="stage" class="rich-text-stage">
+            <div class="block-tabs" role="tablist">
+                <span class="block-tab is-active" role="tab" aria-selected="true">Content</span>
+                <span class="block-tab" role="tab" aria-selected="false">HTML Editor</span>
+            </div>
+            <div class="cke" id="editor">
+                <div class="cke-toolbar" aria-hidden="true">
+                    <b>B</b><i>I</i><u>U</u><span>Paragraph</span><span>Link</span>
+                </div>
+            </div>
+        </main>
+        <script src="rich-text.js"></script>
+        <script src="/dist/extension/editor-theme.js"></script>
+        <script src="/dist/extension/language-data.js"></script>
+        <script src="/dist/extension/editor-language.js"></script>
+    </body>
+</html>

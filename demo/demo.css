@@ -21,7 +21,8 @@ body {
 /* room for the boxes that open above a line */
 .sample-typing #stage,
 .sample-mistakes #stage,
-.sample-fix #stage {
+.sample-fix #stage,
+.sample-lost #stage {
     padding-top: 140px;
 }
 

@@ -11,13 +11,31 @@
     const settings = Object.fromEntries(new URLSearchParams(location.search));
     // where the built extension is, seen from the page; an absolute address, as Chrome gives one
     const extension = new URL('/dist/extension/', location.origin);
+    const kept = {};
 
     // eslint-disable-next-line unicorn/no-global-object-property-assignment -- where the built scripts look for Chrome's API
     globalThis.chrome = {
         runtime: {
+            // a made-up id; the scripts compare it with the sender of a message
+            id: 'demo',
             getURL: (file) => new URL(file, extension).href,
+            // messages between the frames of a page: the demo has one frame, so nobody answers
+            sendMessage: async () => {},
+            onMessage: {
+                addListener: () => {},
+            },
         },
         storage: {
+            // what the scripts keep on this computer, for as long as the page is open
+            local: {
+                get: async (defaults) => ({
+                    ...(typeof defaults === 'object' && defaults),
+                    ...kept,
+                }),
+                set: async (values) => {
+                    Object.assign(kept, values);
+                },
+            },
             sync: {
                 get: async (defaults) => ({ ...defaults, ...settings }),
                 // the options page saves a choice; the demo forgets it

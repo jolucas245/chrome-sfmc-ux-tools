@@ -32,6 +32,16 @@ const AMPSCRIPT_DELIMITERS = [
 ];
 
 /**
+ * Tells whether a text ends inside a Handlebars expression.
+ *
+ * @param {string} before text up to a place, such as a line up to the cursor
+ * @returns {boolean} true after an opening `{{` that is not closed before the place
+ */
+export function isInHandlebars(before) {
+    return before.lastIndexOf('{{') > before.lastIndexOf('}}');
+}
+
+/**
  * Tells which language a place in the document belongs to, the way the language server of the
  * VS Code extension routes its requests: the body of a server-side script is SSJS; the body of
  * any other script is the browser's JavaScript, unless an AMPscript block is open there;

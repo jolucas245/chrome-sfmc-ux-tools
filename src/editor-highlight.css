@@ -627,6 +627,35 @@ html .sfmc-tooltip a:hover {
     border-left: 3px solid var(--sfmc-error);
 }
 
+/*
+ * Says that an HTML tag typed into Content Builder's rich text editor is saved as text; stands
+ * right above that editor (src/editor-language/rich-text.js). Its icon says under the mouse that
+ * the extension added the note.
+ */
+.sfmc-rich-text-notice {
+    box-sizing: border-box;
+    margin: 4px 0;
+    padding: 6px 8px;
+    border: 1px solid var(--sfmc-widget-border);
+    border-left: 3px solid var(--sfmc-warning);
+    background: var(--sfmc-widget-background);
+    color: var(--sfmc-foreground);
+    font: 12px/1.4 sans-serif;
+    white-space: normal;
+}
+.sfmc-rich-text-notice > .sfmc-rich-text-icon {
+    float: right;
+    width: 16px;
+    height: 16px;
+    margin: 0 0 4px 8px;
+    background: url('chrome-extension://__MSG_@@extension_id__/icons/icon16.png') center / contain
+        no-repeat;
+}
+.sfmc-rich-text-notice a {
+    color: var(--sfmc-link);
+    text-decoration: underline;
+}
+
 /* The "format code" button: in Marketing Cloud's editor toolbar, or in the corner of the editor. */
 .sfmc-format-button {
     box-sizing: border-box;

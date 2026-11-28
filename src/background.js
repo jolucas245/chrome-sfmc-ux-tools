@@ -69,6 +69,25 @@
     const EMAIL_TARGET = new RegExp(
         String.raw`^r\.${WORD}\.${WORD}\.[\dA-Fa-f][\dA-Fa-f-]{0,${MOST_ROUTE_ID - 1}}$`,
     );
+    // what a frame of Mobile Studio asks of the Marketing Cloud page: to open the panel
+    // Transactional Messages on one message, and to read one page of the journeys, which
+    // MobilePush's frame may not read itself
+    const MOBILE_PANEL_OPEN = 'sfmc-ux-tools:mobile:panel-open';
+    const MOBILE_JOURNEYS = 'sfmc-ux-tools:mobile:journeys';
+    const MOBILE_MESSAGES = [MOBILE_PANEL_OPEN, MOBILE_JOURNEYS];
+    // what that page tells the frames of Mobile Studio: its panel was closed after it deleted a
+    // transactional message of a channel
+    const MOBILE_PANEL_CLOSED = 'sfmc-ux-tools:mobile:panel-closed';
+    const MOBILE_KINDS = ['sms', 'push'];
+    // where the apps of Mobile Studio are; Marketing Cloud writes these paths with capitals or
+    // without, so they are compared in small letters
+    const MOBILE_PATHS = ['/mobilepush/', '/mobileconnectfuel3/', '/mobile/'];
+    // the key of a transactional message as it is passed on: text on one line. Nobody measured
+    // how long such a key can be; this is far above the 36 characters the panel lets type
+    const MOST_KEY = 200;
+    const MOBILE_KEY = new RegExp(String.raw`^[^\u0000-\u001F\u007F]{1,${MOST_KEY}}$`);
+    // the pages of journeys that are passed on at most
+    const MOST_JOURNEY_PAGES = 1000;
     // what Email Studio's frame asks the Marketing Cloud page for: the data extensions of the
     // folder of an open data extension, see email-studio-de-switcher.js and
     // email-studio-de-switcher-shell.js; the id of a data extension, and how many of them, with
@@ -216,6 +235,22 @@
     }
 
     /**
+     * Tells whether a message comes from a frame of MobilePush or MobileConnect below the page
+     * of a tab.
+     *
+     * @param {object} sender who sent the message, as Chrome describes it
+     * @returns {boolean} true for such a frame only
+     */
+    function isMobileStudioFrame(sender) {
+        const address = frameAddress(sender);
+        if (address === undefined || !address.hostname.endsWith(APP_HOST)) {
+            return false;
+        }
+        const path = address.pathname.toLowerCase();
+        return MOBILE_PATHS.some((item) => path.startsWith(item));
+    }
+
+    /**
      * Tells whether a message comes from the Marketing Cloud page itself, not from a frame in it.
      *
      * @param {object} sender who sent the message, as Chrome describes it
@@ -260,6 +295,9 @@
         if (type === CONTACT_LINK_SHOWN) {
             return isContactBuilderFrame(sender);
         }
+        if (MOBILE_MESSAGES.includes(type)) {
+            return isMobileStudioFrame(sender);
+        }
     }
 
     /**
@@ -284,6 +322,18 @@
         if (message.type === CONTACT_LINK_SHOWN) {
             const isRoute = typeof message.route === 'string' && CONTACT_ROUTE.test(message.route);
             passed.route = isRoute ? message.route : null;
+        }
+        if (message.type === MOBILE_PANEL_OPEN) {
+            passed.kind = MOBILE_KINDS.includes(message.kind) ? message.kind : null;
+            const isKey = typeof message.key === 'string' && MOBILE_KEY.test(message.key);
+            passed.key = isKey ? message.key : null;
+        }
+        if (message.type === MOBILE_JOURNEYS) {
+            const isPage =
+                Number.isSafeInteger(message.page) &&
+                message.page >= 1 &&
+                message.page <= MOST_JOURNEY_PAGES;
+            passed.page = isPage ? message.page : null;
         }
         const isStepped = message.type === DEEP_LINK_SHOWN || message.type === CONTACT_LINK_SHOWN;
         if (isStepped && message.byUser === true) {
@@ -324,6 +374,9 @@
         if (type === DEEP_LINK_OPEN) {
             const isId = typeof message.asset === 'string' && ASSET_ID.test(message.asset);
             return isId ? { type, asset: message.asset } : null;
+        }
+        if (type === MOBILE_PANEL_CLOSED) {
+            return MOBILE_KINDS.includes(message.kind) ? { type, kind: message.kind } : null;
         }
         if (type !== CONTACT_LINK_OPEN) {
             return;

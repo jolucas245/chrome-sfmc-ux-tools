@@ -9,6 +9,7 @@ import {
     IS_NEXT,
     SETTINGS,
     SSJS,
+    isInHandlebars,
     languageAt,
     ssjsOnly,
 } from '../shared.js';
@@ -30,20 +31,8 @@ function isServed(language) {
 }
 
 /**
- * Tells whether a place is inside a Handlebars expression of its line.
- *
- * @param {string} line the line
- * @param {number} character column of a character
- * @returns {boolean} true after an opening `{{` that is not closed before the place
- */
-function isInHandlebars(line, character) {
-    const before = line.slice(0, character + 1);
-    return before.lastIndexOf('{{') > before.lastIndexOf('}}');
-}
-
-/**
- * Asks the language service what it knows about a place in the document. Marketing Cloud Next
- * explains Handlebars itself, so nothing is said about it there.
+ * Asks the language service what it knows about a place in the document: AMPscript, in Marketing
+ * Cloud Next the Handlebars helpers as well, and SSJS in Marketing Cloud Engagement.
  *
  * @param {string} text whole document, its lines ending with a line feed
  * @param {{line: number, character: number}} position line and column of a character
@@ -51,19 +40,13 @@ function isInHandlebars(line, character) {
  */
 export function hoverAt(text, position) {
     const language = languageAt(text, offsetAt(text, position));
-    if (!isServed(language)) {
-        return null;
-    }
-    if (IS_NEXT && isInHandlebars(lineAt(text, position.line), position.character)) {
-        return null;
-    }
-    return explain(text, position, language);
+    return isServed(language) ? explain(text, position, language) : null;
 }
 
 /**
- * Tells whether a place is AMPscript, which the extension explains itself in Marketing Cloud
- * Next. Handlebars inside it is not: that is left to the page. The HTML around AMPscript counts
- * as AMPscript, as it does for the language service.
+ * Tells whether a place is AMPscript, which the extension explains in place of the page in
+ * Marketing Cloud Next. A Handlebars expression is not: see isHandlebarsAt(). The HTML around
+ * AMPscript counts as AMPscript, as it does for the language service.
  *
  * @param {string} text whole document, its lines ending with a line feed
  * @param {{line: number, character: number}} position line and column of a character
@@ -72,7 +55,23 @@ export function hoverAt(text, position) {
 export function isAmpscriptAt(text, position) {
     return (
         languageAt(text, offsetAt(text, position)) === AMPSCRIPT &&
-        !isInHandlebars(lineAt(text, position.line), position.character)
+        !isInHandlebars(lineAt(text, position.line).slice(0, position.character + 1))
+    );
+}
+
+/**
+ * Tells whether a place is inside a Handlebars expression. There the page of Marketing Cloud
+ * Next also explains what the extension does not know, such as the fields of a contact, so the
+ * extension only takes the page's place where it has something to say itself.
+ *
+ * @param {string} text whole document, its lines ending with a line feed
+ * @param {{line: number, character: number}} position line and column of a character
+ * @returns {boolean} true inside `{{ }}`, outside of a script
+ */
+export function isHandlebarsAt(text, position) {
+    return (
+        languageAt(text, offsetAt(text, position)) === AMPSCRIPT &&
+        isInHandlebars(lineAt(text, position.line).slice(0, position.character + 1))
     );
 }
 

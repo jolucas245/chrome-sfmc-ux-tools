@@ -806,6 +806,95 @@ test('underlines errors and warnings in AMPscript and SSJS, and not in browser s
     assert.deepEqual(underlined(editor), [], 'none once the editor is used for something else');
 });
 
+/**
+ * Adds an editor inside the element Content Builder puts around what it edits, marked with the
+ * type of that content.
+ *
+ * @param {object} context page from `page()`
+ * @param {string} types the type that is edited and the types above it
+ * @param {string} content editor content
+ * @param {Element} [parent] where the element goes; the page if left out
+ * @returns {{editor: object, around: Element}} the editor and the element around it
+ */
+function inTypedEditor(context, types, content, parent) {
+    const { document } = context.window;
+    const around = document.createElement('div');
+    around.className = `cloud-editor ${types
+        .split(' ')
+        .map((type) => `editor-mode-${type}`)
+        .join(' ')}`;
+    (parent ?? document.body).append(around);
+    const editor = addEditor(context, content);
+    around.append(editor.getWrapperElement());
+    return { editor, around };
+}
+
+test('a script for the browser is an error in an email and an email template, a warning in a content block, and fine in CloudPages', async () => {
+    const context = page();
+    const content =
+        '<SCRIPT type="text/javascript">var a = 1;</SCRIPT>\n' +
+        '<script runat="server">var b = 1;</script>\n' +
+        '<script runat="server" language="ampscript">set @c = 1</script>\n' +
+        '<script runat="SERVER" type="module">var d = 1;</script>\n' +
+        '<script type="application/ld+json">{}</script>\n' +
+        '<!-- <script>var e;</script> -->';
+    const email = inTypedEditor(context, 'htmlemail message asset', content);
+    const template = inTypedEditor(context, 'template asset', '<script>var a;</script>');
+    const block = inTypedEditor(context, 'codesnippetblock block asset', '<script>var a;</script>');
+    const landingPage = inTypedEditor(context, 'webpage asset', '<script>var a;</script>');
+    const plain = addEditor(context, '<script>var a;</script>');
+    // a block that is edited inside an email is part of the email; one inside a landing page is not flagged
+    const inEmail = inTypedEditor(
+        context,
+        'htmlblock block asset',
+        '<script>var a;</script>',
+        email.around,
+    );
+    const inPage = inTypedEditor(
+        context,
+        'htmlblock block asset',
+        '<script>var a;</script>',
+        landingPage.around,
+    );
+    runExtension(context.window);
+    await checkPause();
+    // the opening tag of each script that does not run on the server, whatever its case and type
+    assert.deepEqual(underlined(email.editor), [
+        'error: <script type="application/ld+json">',
+        'error: <SCRIPT type="text/javascript">',
+    ]);
+    assert.deepEqual(underlined(template.editor), ['error: <script>']);
+    assert.deepEqual(underlined(block.editor), ['warning: <script>']);
+    assert.deepEqual(underlined(inEmail.editor), ['error: <script>']);
+    assert.deepEqual(underlined(landingPage.editor), []);
+    assert.deepEqual(underlined(inPage.editor), []);
+    assert.deepEqual(underlined(plain), []);
+
+    // the box says what happens, names the rule with its page, and offers no fix
+    rest(context, block.editor, '<scr');
+    await hoverPause();
+    const box = context.window.document.querySelector(HOVER);
+    assert.match(box.textContent, /removes this <script> when you save the block/);
+    assert.match(box.textContent, /the editor may still show the tag/);
+    assert.match(box.textContent, /runat="server" is missing in the tag/);
+    const rule = box.querySelector('.sfmc-problem-rule');
+    assert.match(rule.textContent, /script-removed-on-save/);
+    assert.equal(rule.href, 'https://sfmc.guide/engagement/code-persistence/');
+    assert.equal(box.querySelector('.sfmc-fix'), null);
+    rest(context, email.editor, '<SCR');
+    await hoverPause();
+    assert.match(
+        [...context.window.document.querySelectorAll(HOVER)].at(-1).textContent,
+        /emails and email templates keep no JavaScript for the browser/,
+    );
+
+    // what the page says about the content only later is taken up with the next check
+    landingPage.around.classList.replace('editor-mode-webpage', 'editor-mode-message');
+    landingPage.editor.replaceRange(' ', { line: 0, ch: 0 });
+    await checkPause();
+    assert.deepEqual(underlined(landingPage.editor), ['error: <script>']);
+});
+
 test('many problems in the AMPscript do not hide those in the SSJS', async () => {
     const context = page();
     // more unknown functions than the AMPscript check reports at most
@@ -1117,6 +1206,87 @@ test('format on save leaves an editor that was taken off the page alone, and for
     saveButton.click();
     await formatPause();
     assert.deepEqual(saves.slice(1), ['%%[\n    set @a = 1\n]%%']);
+});
+
+/**
+ * Makes a page behave like Content Builder: it saves what it took over from the editor, takes a
+ * change over only when told to, and says that it has through its jQuery.
+ *
+ * @param {object} context page from `page()`
+ * @returns {{editor: object, saveButton: Element, saves: string[], takeOver: () => void}} the editor, the page's Save button, what the page saved at each save, and what makes the page take the content over
+ */
+function inContentBuilder(context) {
+    const { window } = context;
+    const { document } = window;
+    const heard = [];
+    window.jQuery = () => ({
+        on: (name, handler) => {
+            heard.push({ name, handler });
+        },
+    });
+    const { editor, saveButton } = inFrame(context);
+    const around = document.createElement('div');
+    around.className = 'cb-editor';
+    document.querySelector('.et-codemirror').replaceWith(around);
+    around.append(editor.getWrapperElement().closest('.et-codemirror'));
+    let model = editor.getValue();
+    const saves = [];
+    saveButton.addEventListener('click', () => {
+        saves.push(model);
+    });
+    const takeOver = () => {
+        model = editor.getValue();
+        for (const { name, handler } of heard) {
+            if (name === 'cloudeditor:change') {
+                handler({ target: around });
+            }
+        }
+    };
+    return { editor, saveButton, saves, takeOver };
+}
+
+test('Content Builder saves what it took over from the editor: a save waits until it has taken over what the editor shows', async () => {
+    const context = page();
+    const { editor, saveButton, saves, takeOver } = inContentBuilder(context);
+    runExtension(context.window);
+    const { document } = context.window;
+    const ctrlS = () => editor.state.keyMaps.find((map) => 'Ctrl-S' in map)['Ctrl-S'](editor);
+
+    // format on save: the formatted code is saved, not the code from before
+    document.documentElement.setAttribute(ON_SAVE, 'on');
+    saveButton.click();
+    await formatPause();
+    assert.equal(editor.getValue(), '%%[\n    set @a = 1\n]%%');
+    assert.deepEqual(saves, [], 'the page has not taken the formatted code over yet');
+    takeOver();
+    await pause();
+    assert.deepEqual(saves, ['%%[\n    set @a = 1\n]%%']);
+
+    // nothing to format and nothing the page has yet to take over: the save is not held up
+    saveButton.click();
+    await formatPause();
+    assert.equal(saves.length, 2);
+
+    // Ctrl-S right after typing, without format on save: not a save without the last words
+    document.documentElement.setAttribute(ON_SAVE, 'off');
+    editor.replaceRange('x', { line: 0, ch: 0 });
+    assert.equal(ctrlS(), undefined);
+    assert.equal(saves.length, 2, 'held back until the page has what was typed');
+    takeOver();
+    await pause();
+    assert.equal(saves.at(-1), 'x%%[\n    set @a = 1\n]%%');
+    assert.equal(saves.length, 3);
+    // and at once where the page has everything
+    ctrlS();
+    assert.equal(saves.length, 4);
+
+    // a page that stays silent does not lose the save, and is not waited for a second time
+    editor.replaceRange('y', { line: 0, ch: 0 });
+    ctrlS();
+    await new Promise((resolve) => setTimeout(resolve, 3200));
+    assert.equal(saves.length, 5);
+    ctrlS();
+    assert.equal(saves.length, 6);
 });
 
 test('the format-on-save setting reaches the page, off by default', async () => {

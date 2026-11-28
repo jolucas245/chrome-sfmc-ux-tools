@@ -7,7 +7,7 @@ import { applyFix, fixesFor } from './quickfix.js';
 import { checkNow, diagnosticsAt } from './diagnostics.js';
 import { colour } from './colour.js';
 import { createTooltip } from './tooltip.js';
-import { hoverAt as findHover, isAmpscriptAt } from './core/lookup.js';
+import { hoverAt as findHover, isAmpscriptAt, isHandlebarsAt } from './core/lookup.js';
 import { renderMarkdown } from './markdown.js';
 
 export const SHOW_DELAY = 350;
@@ -129,7 +129,8 @@ export function registerHover(cm) {
     // the content the fixes on show were worked out for
     let fixedText = '';
     // Marketing Cloud Next's own explanation: it explains fewer AMPscript functions and each in
-    // one sentence, so it is hidden while the mouse is on AMPscript
+    // one sentence, so it is hidden while the mouse is on AMPscript, and on Handlebars wherever
+    // the extension has something to say
     const pageTooltip = IS_NEXT ? nearbyElement(wrapper, PAGE_TOOLTIP) : null;
 
     /**
@@ -143,6 +144,32 @@ export function registerHover(cm) {
         } catch (ex) {
             report(ex);
         }
+    }
+
+    // the place that was asked about last, and whether the extension explains it
+    const ours = { key: '', is: false };
+    /**
+     * Tells whether the extension explains a place in place of the page: all of AMPscript, and
+     * of Handlebars what it knows, such as a helper, or objects to. A field of a contact, which
+     * only the page knows, is left to the page.
+     *
+     * @param {{line: number, ch: number}} place line and column of a character
+     * @returns {boolean} true if the page's own explanation is hidden there
+     */
+    function isOurs(place) {
+        // asked on every move of the mouse: the answer for a place holds until the content changes
+        const key = `${cm.changeGeneration()}:${place.line}:${place.ch}`;
+        if (ours.key !== key) {
+            const position = { line: place.line, character: place.ch };
+            const text = cm.getValue();
+            ours.key = key;
+            ours.is = isAmpscriptAt(text, position)
+                ? true
+                : isHandlebarsAt(text, position) &&
+                  (Boolean(hoverAt(cm, place)?.contents?.value) ||
+                      problemsAt(cm, place).length > 0);
+        }
+        return ours.is;
     }
 
     const hide = () => {
@@ -233,10 +260,7 @@ export function registerHover(cm) {
             // at once, before the page shows its explanation
             try {
                 const place = characterAt(cm, point);
-                mute(
-                    Boolean(place) &&
-                        isAmpscriptAt(cm.getValue(), { line: place.line, character: place.ch }),
-                );
+                mute(Boolean(place) && isOurs(place));
             } catch (ex) {
                 report(ex);
             }

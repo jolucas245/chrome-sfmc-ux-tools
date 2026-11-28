@@ -15,6 +15,7 @@ import { registerDefinition } from './editor-language/definition.js';
 import { registerDiagnostics } from './editor-language/diagnostics.js';
 import { IS_NEXT, watchEditors } from './editor-language/editors.js';
 import { registerHover } from './editor-language/hover.js';
+import { watchRichText } from './editor-language/rich-text.js';
 import { registerSignature } from './editor-language/signature.js';
 import { requestTypescript } from './editor-language/typescript.js';
 import { watchAceEditors } from './editor-language/ace/script-activity.js';
@@ -22,8 +23,8 @@ import { watchQueryEditors } from './editor-language/ace/query-activity.js';
 
 if (IS_NEXT) {
     // Marketing Cloud Next's content editor runs no server-side JavaScript and has suggestions of
-    // its own: it gets suggestions for AMPscript where the page shows none, explanations,
-    // parameter help and what is wrong with the code
+    // its own: it gets suggestions for AMPscript and Handlebars where the page shows none,
+    // explanations, parameter help and what is wrong with the code
     watchEditors('language', [
         registerCompletions,
         registerHover,
@@ -40,6 +41,8 @@ if (IS_NEXT) {
         registerDiagnostics,
         registerDefinition,
     ]);
+    // Content Builder's rich text editor stores typed tags as text, which it gets a warning for
+    watchRichText();
     // Automation Studio's script activity has another editor, Ace; it gets its colours and the same features here
     watchAceEditors();
     // its SQL query activity keeps its own SQL colouring and follows the editor theme

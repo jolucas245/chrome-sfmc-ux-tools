@@ -37,6 +37,10 @@
             ]
         },
         {
+            "resources": ["icons/sidebar-hide.svg", "icons/sidebar-show.svg"],
+            "matches": ["https://*.exacttarget.com/*"]
+        },
+        {
             "resources": [
                 "editor-codemirror.js",
                 "language-data.js",
@@ -180,6 +184,13 @@
             "world": "MAIN",
             "all_frames": true,
             "run_at": "document_start"
+        },
+        {
+            "matches": ["https://*.exacttarget.com/C12/Default.aspx*"],
+            "js": ["email-studio-left-nav.js"],
+            "css": ["email-studio-left-nav.css"],
+            "all_frames": true,
+            "run_at": "document_idle"
         },
         {
             "matches": ["https://*.exacttarget.com/C12/Default.aspx*"],

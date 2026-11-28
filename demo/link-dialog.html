@@ -1,0 +1,53 @@
+<!doctype html>
+<!--
+    SFMC UX Tools: demo page of the dialog about a link to an asset of another business unit, for
+    the pictures of the README. demo/link-dialog.js moves the address to the Marketing Cloud page
+    with such a link and answers the script's questions about the business units with made-up
+    ones; then the built script runs as on that page. Open it through `npm run screenshots`, which
+    serves the repository locally.
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>SFMC UX Tools: link to another business unit demo (made-up content)</title>
+        <link rel="icon" href="data:," />
+        <!-- absolute addresses: the address of the page changes before the rest is loaded -->
+        <link rel="stylesheet" href="/demo/demo.css" />
+        <link rel="stylesheet" href="/demo/link-dialog.css" />
+        <link rel="stylesheet" href="/dist/extension/deep-link.css" />
+        <script src="/demo/chrome-stub.js"></script>
+        <script src="/demo/link-dialog.js"></script>
+        <script src="/dist/extension/deep-link-shell.js"></script>
+    </head>
+    <body>
+        <!-- the header of the Marketing Cloud page, as far as the picture shows it -->
+        <header class="demo-mc-header">
+            <span class="demo-mc-logo">Marketing Cloud</span>
+            <nav class="demo-mc-apps">
+                <span>Email Studio</span>
+                <span class="demo-mc-current">Content Builder</span>
+                <span>Journey Builder</span>
+            </nav>
+            <div class="mc-account-switcher-current-account-details">
+                <span class="mc-account-switcher-current-account-name">Demo Brand US</span>
+                <span class="demo-mc-mid">MID: 100000001</span>
+            </div>
+        </header>
+        <main class="demo-mc-content">
+            <aside class="demo-mc-folders">
+                <div>Content Builder</div>
+                <div>Newsletters</div>
+                <div>Welcome Series</div>
+                <div>Shared Content</div>
+            </aside>
+            <section class="demo-mc-assets">
+                <div class="demo-mc-asset">Welcome_Email</div>
+                <div class="demo-mc-asset">Spring_Newsletter</div>
+                <div class="demo-mc-asset">Order_Confirmation</div>
+                <div class="demo-mc-asset">Footer_Block</div>
+                <div class="demo-mc-asset">Header_Image</div>
+                <div class="demo-mc-asset">Survey_Invite</div>
+            </section>
+        </main>
+    </body>
+</html>

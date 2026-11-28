@@ -371,7 +371,10 @@ test('Next: Ctrl-Space and typing suggest the AMPscript that Marketing Cloud Nex
     assert.equal(icons.length, 1);
     assert.equal(icons[0], list.lastChild);
     assert.equal(icons[0].getAttribute('role'), 'img');
-    assert.equal(icons[0].title, 'SFMC UX Tools: added this list of AMPscript suggestions.');
+    assert.equal(
+        icons[0].title,
+        'SFMC UX Tools: added this list of suggestions for AMPscript and Handlebars.',
+    );
     assert.equal(icons[0].getAttribute('aria-label'), icons[0].title);
     // the keyboard moves through the list, and a pick inserts the function
     const { widget } = editor.state.completionActive;
@@ -402,12 +405,66 @@ test('Next: Ctrl-Space and typing suggest the AMPscript that Marketing Cloud Nex
     assert.ok(document.querySelector(`${POPUP}.sfmc-hints`));
 });
 
-test('Next: Handlebars, scripts and the suggestions of the page itself are left to the page', async () => {
+test('Next: inside {{ }} the Handlebars helpers are suggested, a block helper with its sign, and nothing where no helper goes', async () => {
+    const { window, editor, picker } = await withPageParts(
+        '<p>{{upp}}</p>\n<p>{{#i}}</p>\n<p>{{i}}</p>\n<p>{{/i}} {{> i}} {{! i}}</p>',
+    );
+    const { document } = window;
+    cursorBehind(editor, '{{upp');
+    assert.equal(pressCtrlSpace(window, editor), 'extension');
+    assert.ok(offered(editor).includes('uppercase'), offered(editor).join(' '));
+    // helpers only, no AMPscript function
+    assert.ok(!offered(editor).includes('Uppercase'));
+    assert.ok(document.querySelector(`${POPUP}.sfmc-hints`));
+    // a helper is followed by a blank, never by a bracket
+    const { widget } = editor.state.completionActive;
+    widget.changeActive(offered(editor).indexOf('uppercase'));
+    widget.pick();
+    assert.equal(editor.getLine(0), '<p>{{uppercase }}</p>');
+
+    // after the sign of a block, only helpers that have one; the sign is not doubled
+    cursorBehind(editor, '{{#i');
+    assert.equal(pressCtrlSpace(window, editor), 'extension');
+    assert.deepEqual([...offered(editor)], ['if', 'impressionRegion']);
+    const block = editor.state.completionActive.widget;
+    block.changeActive(0);
+    block.pick();
+    assert.equal(editor.getLine(1), '<p>{{#if }}</p>');
+    // without the sign, the block helper brings it along, next to the plain helpers
+    cursorBehind(editor, '{{i');
+    assert.equal(pressCtrlSpace(window, editor), 'extension');
+    assert.ok(offered(editor).includes('iif'), offered(editor).join(' '));
+    const plain = editor.state.completionActive.widget;
+    plain.changeActive(offered(editor).indexOf('if'));
+    plain.pick();
+    assert.equal(editor.getLine(2), '<p>{{#if }}</p>');
+
+    // the end of a block, a partial and a comment take no helper
+    for (const place of ['{{/i', '{{> i', '{{! i']) {
+        cursorBehind(editor, place);
+        assert.equal(pressCtrlSpace(window, editor), 'page', place);
+        assert.equal(document.querySelector(POPUP), null, place);
+    }
+
+    // while typing, and not while the page shows its own suggestions
+    cursorBehind(editor, '{{uppercase ');
+    editor.replaceRange('{{pro', { line: 0, ch: 0 }, { line: 0, ch: 0 });
+    cursorBehind(editor, '{{pro');
+    type(window, editor, 'p');
+    await typingPause();
+    assert.ok(offered(editor).includes('propercase'), offered(editor).join(' '));
+    editor.state.completionActive?.close();
+    picker.isOpen = true;
+    assert.equal(pressCtrlSpace(window, editor), 'page');
+    assert.equal(document.querySelector(POPUP), null);
+});
+
+test('Next: scripts and the suggestions of the page itself are left to the page', async () => {
     const { window, editor, picker } = await withPageParts(
         '<p>{{upp}} {{#if\n a}}</p>\n%%[ set @a = Lo ]%%\n<script>var a = 1; a</script>',
     );
     const { document } = window;
-    const places = ['{{upp', ' a', '<script>var a = 1; a'];
+    const places = ['<script>var a = 1; a'];
     for (const place of places) {
         cursorBehind(editor, place);
         assert.equal(pressCtrlSpace(window, editor), 'page', place);
@@ -489,9 +546,9 @@ test('Next: the lists of suggestions of the page itself keep their look, and onl
     );
 });
 
-test('Next: on AMPscript the extension explains and the explanation of the page itself is hidden; on Handlebars it is the other way round', async () => {
+test('Next: where the extension explains, the explanation of the page itself is hidden: on AMPscript, and on what it knows of Handlebars', async () => {
     const { window, editor, tooltip } = await withPageParts(
-        '%%=Uppercase(@a)=%%\n%%[ set @b = HTTPGet("a") ]%%\n<p>{{uppercase name}}</p>',
+        '%%=Uppercase(@a)=%%\n%%[ set @b = HTTPGet("a") ]%%\n<p>{{uppercase myOwnField}} {{nope a}}</p>',
     );
     await checkPause();
     const { document } = window;
@@ -509,10 +566,18 @@ test('Next: on AMPscript the extension explains and the explanation of the page 
     assert.ok(document.querySelector(`${HOVER} .sfmc-problem-error`));
     assert.equal(document.querySelector(`${HOVER} pre`), null);
 
-    // Handlebars: the page explains, the extension does not
+    // a Handlebars helper: ours is shown as well, and the page's is hidden
     await rest(window, editor, '{{upper');
+    assert.equal(isMuted(), true);
+    assert.match(document.querySelector(`${HOVER} pre`).textContent, /^\(helper\) uppercase\(/);
+    // a field that only the page knows: the page explains, the extension does not
+    await rest(window, editor, '{{uppercase myOwn');
     assert.equal(isMuted(), false);
     assert.equal(document.querySelector(HOVER), null);
+    // what the extension objects to is said by the extension
+    await rest(window, editor, '{{nop');
+    assert.equal(isMuted(), true);
+    assert.ok(document.querySelector(`${HOVER} .sfmc-problem`));
 
     // back on AMPscript, then off the editor: the page may explain again
     await rest(window, editor, '%%=Upper');
@@ -551,13 +616,13 @@ test('Next: an explanation that the page replaces is hidden as well, and without
     );
 });
 
-test('Next: AMPscript is checked for Marketing Cloud Next, and what it lacks is only said to be unsupported', async () => {
+test('Next: AMPscript and Handlebars are checked for Marketing Cloud Next, and what it lacks is only said to be unsupported', async () => {
     const content =
         '<p>{{uppercas name}} {{base64Encode name}}</p>\n%%[ set @a = HTTPGet("https://example.com") ]%%\n%%=Uppercase(@a)=%%';
     const { window, editor } = await withEditor(content);
     await checkPause();
-    // nothing is said about Handlebars, of which the page knows more than the language service
-    assert.deepEqual(underlined(editor), ['error: HTTPGet']);
+    // a helper that Marketing Cloud Next does not have is underlined, one that it has is not
+    assert.deepEqual(underlined(editor), ['error: HTTPGet', 'warning: {{uppercas name}}']);
 
     const { document } = window;
     await rest(window, editor, 'set @a = HTTP');
@@ -577,16 +642,25 @@ test('Next: AMPscript is checked for Marketing Cloud Next, and what it lacks is 
     assert.equal(document.querySelector(`${HOVER} .sfmc-problem`), null);
 });
 
-test('Next: Handlebars is left to the page: no box on a helper, known or not; parameters are still shown', async () => {
+test('Next: a Handlebars helper is explained as a helper, a misspelt one can be fixed, and its parameters are shown', async () => {
     const { window, editor } = await withEditor(
-        '<p>{{uppercase name}} {{base64Encode name}}</p>\n<p>{{add 1 2}}</p>',
+        '<p>{{uppercase name}} {{base64Encode name}}</p>\n<p>{{add 1 2}}</p>\n<p>{{properCase name}}</p>',
     );
+    await checkPause();
     const { document } = window;
     await rest(window, editor, '{{upper');
-    assert.equal(document.querySelector(HOVER), null);
-    // not the AMPscript function of the same name either
+    assert.match(document.querySelector(`${HOVER} pre`).textContent, /^\(helper\) uppercase\(/);
+    // the helper, not the AMPscript function of the same name
     await rest(window, editor, '{{base64');
-    assert.equal(document.querySelector(HOVER), null);
+    assert.match(document.querySelector(`${HOVER} pre`).textContent, /^\(helper\) base64Encode\(/);
+
+    // Marketing Cloud Next tells helpers apart by their case: the box says so and offers the fix
+    assert.deepEqual(underlined(editor), ['warning: {{properCase name}}']);
+    await rest(window, editor, '{{proper');
+    const box = document.querySelector(HOVER);
+    assert.match(box.querySelector('.sfmc-problem-rule').textContent, /hbs-helper-name-case/);
+    box.querySelector('.sfmc-fix').click();
+    assert.equal(editor.getLine(2), '<p>{{propercase name}}</p>');
 
     editor.hasFocus = () => true;
     editor.setCursor({ line: 1, ch: 11 });
@@ -595,6 +669,46 @@ test('Next: Handlebars is left to the page: no box on a helper, known or not; pa
     const help = document.querySelector(SIGNATURE);
     assert.match(help.querySelector('pre').textContent, /^\(helper\) add\(value1: number/);
     assert.equal(help.querySelector('strong').textContent, 'value2: number');
+});
+
+test('Next: a field with the name of a helper is left to the page, and no helper is suggested where a field goes', async () => {
+    const { window, editor, tooltip } = await withPageParts(
+        '<p>{{uppercase add}} {{Contact.length}}</p>\n<p>{{uppercase na}}</p>',
+    );
+    await checkPause();
+    const { document } = window;
+    assert.deepEqual(underlined(editor), []);
+    // "add" and "length" are helpers, but not where a field stands
+    for (const place of ['{{uppercase a', '{{Contact.len']) {
+        await rest(window, editor, place);
+        assert.equal(Object.hasOwn(tooltip.dataset, 'sfmcUxToolsMuted'), false, place);
+        assert.equal(document.querySelector(HOVER), null, place);
+    }
+    await rest(window, editor, '{{upper');
+    assert.match(document.querySelector(`${HOVER} pre`).textContent, /^\(helper\) uppercase\(/);
+
+    cursorBehind(editor, '{{uppercase na');
+    assert.equal(pressCtrlSpace(window, editor), 'page');
+    assert.equal(document.querySelector(POPUP), null);
+});
+
+test('Next: a Handlebars block that is closed wrongly or not at all is underlined at its name, next to the other mistakes', async () => {
+    const wrong = await withEditor('<p>{{#if a}}x{{/each}}</p>\n<p>{{properCase a}}</p>');
+    await checkPause();
+    assert.deepEqual(underlined(wrong.editor), ['error: each', 'warning: {{properCase a}}']);
+    await rest(wrong.window, wrong.editor, '{{/ea');
+    assert.match(
+        wrong.window.document.querySelector(`${HOVER} .sfmc-problem`).textContent,
+        /\{\{\/each\}\} does not close \{\{#if\}\}/,
+    );
+
+    const open = await withEditor('<p>{{nope a}}</p>\n<p>{{#if b}}</p>');
+    await checkPause();
+    assert.deepEqual(underlined(open.editor), ['error: if', 'warning: {{nope a}}']);
+
+    const unfinished = await withEditor('<p>fine</p>\n<p>{{upp');
+    await checkPause();
+    assert.deepEqual(underlined(unfinished.editor), ['error: {{']);
 });
 
 test('Next: server-side JavaScript is said to be unsupported, and nothing else is said about it', async () => {
@@ -695,4 +809,50 @@ test('the manifest runs the language and formatting scripts in the content edito
             .map((entry) => entry.resources),
         [['icons/icon16.png']],
     );
+});
+
+test('Next: no helper after the sign that trims blanks, no doubled blank, and a "#" outside {{ }} is left alone', async () => {
+    const { window, editor } = await withPageParts(
+        '<p>{{~/i}} {{~> i}}</p>\n<p>{{upp name}}</p>\n<a href="#i">x</a>\n<p>{{ #i}} {{#if a}}{{up}}{{/if}}</p>',
+    );
+    const { document } = window;
+    for (const place of ['{{~/i', '{{~> i']) {
+        cursorBehind(editor, place);
+        assert.equal(pressCtrlSpace(window, editor), 'page', place);
+        assert.equal(document.querySelector(POPUP), null, place);
+    }
+    // a blank that is there already is not doubled
+    cursorBehind(editor, '{{upp');
+    assert.equal(pressCtrlSpace(window, editor), 'extension');
+    const first = editor.state.completionActive.widget;
+    first.changeActive(offered(editor).indexOf('uppercase'));
+    first.pick();
+    assert.equal(editor.getLine(1), '<p>{{uppercase name}}</p>');
+    // the "#" of an address is no block: nothing of the extension replaces it
+    cursorBehind(editor, 'href="#i');
+    pressCtrlSpace(window, editor);
+    editor.state.completionActive?.close();
+    assert.equal(editor.getLine(2), '<a href="#i">x</a>');
+    // a blank before the sign, and an expression after a block that is open
+    cursorBehind(editor, '{{ #i');
+    assert.equal(pressCtrlSpace(window, editor), 'extension');
+    assert.deepEqual([...offered(editor)], ['if', 'impressionRegion']);
+    editor.state.completionActive.close();
+    cursorBehind(editor, '{{#if a}}{{up');
+    assert.equal(pressCtrlSpace(window, editor), 'extension');
+    assert.ok(offered(editor).includes('uppercase'), offered(editor).join(' '));
+});
+
+test('Engagement: inside {{ }} an AMPscript function is still inserted with its bracket', async () => {
+    const window = page(ENGAGEMENT_URL);
+    loadLibrary(window);
+    const editor = addEditor(window, window.document.body, '<p>{{Upp}}</p>');
+    runExtension(window);
+    await libraryPause();
+    cursorBehind(editor, '{{Upp');
+    pressCtrlSpace(window, editor);
+    const { widget } = editor.state.completionActive;
+    widget.changeActive(offered(editor).indexOf('Uppercase'));
+    widget.pick();
+    assert.equal(editor.getLine(0), '<p>{{Uppercase(}}</p>');
 });

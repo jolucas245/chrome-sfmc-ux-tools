@@ -13,8 +13,8 @@ const TRIGGER_CHARACTER = /[\w@.$]$/;
 const LIST_CLASS = 'sfmc-hints';
 // the extension's icon in the corner of that list, and what it says under the mouse
 const ICON_CLASS = 'sfmc-hints-icon';
-const ICON_SAYS = 'SFMC UX Tools: added this list of AMPscript suggestions.';
-// Marketing Cloud Next's own suggestions for AMPscript; its `isOpen` tells whether they are on show
+const ICON_SAYS = 'SFMC UX Tools: added this list of suggestions for AMPscript and Handlebars.';
+// Marketing Cloud Next's own suggestions; its `isOpen` tells whether they are on show
 const PAGE_PICKER = 'es_block_builder-content-resource-picker';
 const timers = new WeakMap();
 // per editor, what finds the page's own suggestions
@@ -22,7 +22,7 @@ const pickers = new WeakMap();
 
 /**
  * Tells whether a place is left to Marketing Cloud Next's own suggestions: while they are on
- * show, and in everything but AMPscript, which includes Handlebars.
+ * show, and in everything but AMPscript and Handlebars, which is the scripts of the browser.
  *
  * @param {object} cm CodeMirror instance
  * @param {{line: number, ch: number}} cursor where the cursor is
@@ -36,10 +36,7 @@ function isLeftToPage(cm, cursor) {
         return true;
     }
     const before = cm.getValue().slice(0, cm.indexFromPos(cursor));
-    return (
-        languageAt(before, before.length) !== AMPSCRIPT ||
-        before.lastIndexOf('{{') > before.lastIndexOf('}}')
-    );
+    return languageAt(before, before.length) !== AMPSCRIPT;
 }
 
 /**

@@ -49,6 +49,20 @@
     const NAME = 'sfmc-ux-tools-transactional';
     // the apps of Mobile Studio that the menu is recognised by
     const MOBILE_APPS = 'a[href$="#app/MobileConnect"], a[href$="#app/MobilePush"]';
+    // what MobilePush's frame asks of this page, through the extension: to open the panel on one
+    // push message, and to read one page of the journeys, which that frame may not read itself
+    const PANEL_OPEN = 'sfmc-ux-tools:mobile:panel-open';
+    const JOURNEYS = 'sfmc-ux-tools:mobile:journeys';
+    // what this page tells the frames of Mobile Studio: the panel was closed after it deleted a
+    // message of a channel, so that their list is read again
+    const PANEL_CLOSED = 'sfmc-ux-tools:mobile:panel-closed';
+    // journeys asked for per page; the answer must repeat it
+    const JOURNEY_PAGE = 50;
+    // what the journeys are asked for, and the kind of journey that sends once ("Single Send"):
+    // nobody has seen whether the list of all journeys has those, so they are counted by themselves
+    const JOURNEY_LIST = 'interaction/v1/interactions';
+    const ALL_VERSIONS = 'mostRecentVersionOnly=false';
+    const SINGLE_SEND = 'Quicksend';
     // the longest key of a transactional email; taken for these messages too, which nobody measured
     const KEY_MAX = 36;
     // the kind of Content Builder asset that holds a mobile message ("jsonmessage"); it is what
@@ -594,6 +608,9 @@
     let body;
     let note;
     let tabs;
+    // the kinds of message of which one was deleted, or may have been, since the panel was closed
+    // the last time
+    const deletedKinds = new Set();
     // counts what was asked for, so that a late answer for something else is dropped
     let asked = 0;
     // counts the forms, to give the lists of their fields names of their own
@@ -641,13 +658,15 @@
      * @param {string} path address below the API
      * @param {string} [method] GET to read, POST to create, PATCH to change, DELETE to delete
      * @param {object} [content] what to send along
+     * @param {boolean} [isFresh] true when the answer must not come from the browser's cache
      * @returns {Promise.<object>} the answer; an error with isUnanswered when none came
      */
-    async function ask(path, method = 'GET', content) {
+    async function ask(path, method = 'GET', content, isFresh = false) {
         let response;
         try {
             response = await fetch(API + path, {
                 body: content && JSON.stringify(content),
+                ...(isFresh && { cache: 'no-store' }),
                 credentials: 'same-origin',
                 headers: {
                     Accept: 'application/json',
@@ -1423,6 +1442,30 @@
     }
 
     /**
+     * Tells the apps of Mobile Studio of which kinds a message was deleted, so that their list is
+     * read again, and forgets those kinds.
+     */
+    function announceDeletes() {
+        for (const kind of deletedKinds) {
+            tell({ type: PANEL_CLOSED, kind });
+        }
+        deletedKinds.clear();
+    }
+
+    /**
+     * Notes that a message of a kind was deleted, or may have been. The apps are told when the
+     * panel is closed, or at once when the answer came after it was closed.
+     *
+     * @param {{id: string}} kind kind of message
+     */
+    function noteDelete(kind) {
+        deletedKinds.add(kind.id);
+        if (!dialog.open) {
+            announceDeletes();
+        }
+    }
+
+    /**
      * Deletes a definition that the user has confirmed, unless it is no longer the one shown.
      *
      * @param {{id: string, title: string}} kind kind of message
@@ -1452,11 +1495,16 @@
             }
             isSent = true;
             await write(kind, key, 'DELETE');
+            noteDelete(kind);
             // an answer that comes after the user went elsewhere is not shown; the lists are read anew
             if (mine === asked) {
                 openList(kind, `Deleted ${called}.`);
             }
         } catch (ex) {
+            // a delete that went out and got no answer may have been carried out
+            if (isSent && ex.isUnanswered) {
+                noteDelete(kind);
+            }
             if (mine !== asked) {
                 return;
             }
@@ -3893,14 +3941,12 @@
     }
 
     /**
-     * Shows the list of one kind of message: the one that was read before, unless a message of
-     * that kind was created, changed or deleted since, or none was read yet.
+     * Marks the tab of a kind of message as the one on show, and says what is to be said of that
+     * kind above whatever the panel shows of it.
      *
-     * @param {{id: string, title: string, note?: Array}} kind kind of message
-     * @param {string} [notice] what just happened, to say above the list
+     * @param {{id: string, note?: Array}} kind kind of message
      */
-    async function openList(kind, notice) {
-        const mine = ++asked;
+    function select(kind) {
         for (const tab of tabs.children) {
             tab.setAttribute('aria-selected', String(tab.dataset.kind === kind.id));
         }
@@ -3917,6 +3963,18 @@
             }),
         );
         note.hidden = !kind.note;
+    }
+
+    /**
+     * Shows the list of one kind of message: the one that was read before, unless a message of
+     * that kind was created, changed or deleted since, or none was read yet.
+     *
+     * @param {{id: string, title: string, note?: Array}} kind kind of message
+     * @param {string} [notice] what just happened, to say above the list
+     */
+    async function openList(kind, notice) {
+        const mine = ++asked;
+        select(kind);
         // what just happened stays in view, whatever becomes of the list
         const said = notice ? [make('p', 'notice', notice)] : [];
         const kept = lists.get(kind.id);
@@ -3978,6 +4036,8 @@
         // a late answer must not fill a panel that was closed
         dialog.addEventListener('close', () => {
             asked++;
+            // the apps of Mobile Studio list the messages that belong to these
+            announceDeletes();
         });
         // Escape does not close the panel: only its × does. What Escape closes inside it, a list
         // or a box of the code editor, takes the key first and keeps it from coming here. Kept
@@ -4004,6 +4064,158 @@
         }
         openList(KINDS[0]);
     }
+
+    /**
+     * Opens the panel on the details of one message, without reading a list first.
+     *
+     * @param {{id: string, title: string}} kind kind of message
+     * @param {string} key key of the definition
+     */
+    function openOn(kind, key) {
+        if (!dialog) {
+            build();
+        }
+        if (!dialog.open) {
+            dialog.showModal();
+        }
+        select(kind);
+        openDetails(kind, key);
+    }
+
+    /**
+     * Sends a message to the extension, for the frames below this page. It never throws.
+     *
+     * @param {object} message what to send
+     */
+    async function tell(message) {
+        try {
+            await chrome.runtime.sendMessage(message);
+        } catch {
+            // the extension was updated or switched off: nobody is told
+        }
+    }
+
+    /**
+     * Reads one page of the journeys of the business unit, in all their versions, and of each
+     * version the push messages its activities name. The business unit is read along with it,
+     * because the frame that asks may be logged in to another one. It never throws.
+     *
+     * @param {number} page which page, from 1
+     * @returns {Promise.<{isOk: boolean, count?: number, pageSize?: number, singleSends?: number, mid?: string, origin?: string, journeys?: object[]}>} the page, with how many versions of journeys that send once the business unit has; not ok when anything of it could not be read or had another shape than expected
+     */
+    async function readJourneys(page) {
+        try {
+            // none of it from the browser's cache: a message is deleted on the strength of it
+            const [answer, singles, context] = await Promise.all([
+                ask(
+                    `${JOURNEY_LIST}?$page=${page}&$pageSize=${JOURNEY_PAGE}&extras=activities&${ALL_VERSIONS}`,
+                    'GET',
+                    undefined,
+                    true,
+                ),
+                ask(
+                    `${JOURNEY_LIST}?$page=1&$pageSize=1&definitionType=${SINGLE_SEND}&${ALL_VERSIONS}`,
+                    'GET',
+                    undefined,
+                    true,
+                ),
+                ask('platform/v1/tokenContext', 'GET', undefined, true),
+            ]);
+            const mid = context.organization?.id;
+            if (
+                !Number.isSafeInteger(mid) ||
+                !Number.isSafeInteger(answer.count) ||
+                answer.count < 0 ||
+                !Number.isSafeInteger(singles.count) ||
+                singles.count < 0 ||
+                answer.page !== page ||
+                answer.pageSize !== JOURNEY_PAGE ||
+                !Array.isArray(answer.items)
+            ) {
+                return { isOk: false };
+            }
+            const journeys = [];
+            for (const item of answer.items) {
+                if (
+                    typeof item?.id !== 'string' ||
+                    typeof item.name !== 'string' ||
+                    typeof item.definitionType !== 'string' ||
+                    !Number.isSafeInteger(item.version) ||
+                    !Array.isArray(item.activities)
+                ) {
+                    return { isOk: false };
+                }
+                const pushIds = [];
+                // of every activity, whatever its type: a type nobody has seen yet counts too
+                for (const activity of item.activities) {
+                    const id = activity?.configurationArguments?.pushMessageId;
+                    if ([undefined, null, ''].includes(id)) {
+                        continue;
+                    }
+                    // an id in a shape nobody has seen cannot be held against a message
+                    if (typeof id !== 'number' && typeof id !== 'string') {
+                        return { isOk: false };
+                    }
+                    pushIds.push(String(id));
+                }
+                // the same for the SMS message an activity names
+                const smsIds = [];
+                for (const activity of item.activities) {
+                    const id = activity?.configurationArguments?.messageId;
+                    if ([undefined, null, ''].includes(id)) {
+                        continue;
+                    }
+                    if (typeof id !== 'number' && typeof id !== 'string') {
+                        return { isOk: false };
+                    }
+                    smsIds.push(String(id));
+                }
+                journeys.push({
+                    id: item.id,
+                    name: item.name,
+                    type: item.definitionType,
+                    version: item.version,
+                    status: typeof item.status === 'string' ? item.status : '',
+                    pushIds,
+                    smsIds,
+                });
+            }
+            return {
+                isOk: true,
+                count: answer.count,
+                pageSize: answer.pageSize,
+                singleSends: singles.count,
+                mid: String(mid),
+                origin: location.origin,
+                journeys,
+            };
+        } catch {
+            return { isOk: false };
+        }
+    }
+
+    // what MobilePush's frame asks for; the extension passes on what has the expected form only
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        // passed on by the extension itself, not sent by the script of a page
+        if (sender.id !== chrome.runtime.id || sender.tab) {
+            return false;
+        }
+        if (message?.type === PANEL_OPEN) {
+            const kind = KINDS.find((item) => item.id === message.kind);
+            if (kind && typeof message.key === 'string') {
+                openOn(kind, message.key);
+            }
+            return false;
+        }
+        if (message?.type === JOURNEYS && Number.isSafeInteger(message.page)) {
+            (async () => {
+                sendResponse(await readJourneys(message.page));
+            })();
+            // the answer follows once the page was read
+            return true;
+        }
+        return false;
+    });
 
     /**
      * Adds the entry to the Mobile Studio menu, unless it is there.

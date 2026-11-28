@@ -1,0 +1,90 @@
+/*
+ * SFMC UX Tools — the width of the menu on the left of Email Studio. Email Studio places the
+ * collapse bar 6px and its content 19px to the right of the menu's width; both follow the width
+ * set by email-studio-left-nav.js. The handle fills the 12px between the menu and the content,
+ * where Email Studio has its collapse bar.
+ *
+ * Email Studio's two bars are hidden only once email-studio-left-nav.js has put the handle and
+ * the button that shows a hidden menu in their place, which it marks on the html element. A
+ * hidden menu leaves 28px to the left of the content for that button, which is 21px wide like
+ * Email Studio's own above the menu. The button floats in that room, 5px below the top of the
+ * row, where Email Studio's bars start too.
+ */
+html[data-sfmc-ux-tools-left-nav] #divLeftNav {
+    width: var(--sfmc-ux-tools-left-nav-width) !important;
+}
+html[data-sfmc-ux-tools-left-nav] #collapseLeftNav {
+    left: calc(var(--sfmc-ux-tools-left-nav-width) + 6px) !important;
+}
+html[data-sfmc-ux-tools-left-nav] #divContent:not(.expanded) {
+    margin-left: calc(var(--sfmc-ux-tools-left-nav-width) + 19px) !important;
+}
+html[data-sfmc-ux-tools-left-nav-bars] #collapseLeftNav,
+html[data-sfmc-ux-tools-left-nav-bars] #expandLeftNav {
+    display: none !important;
+}
+html[data-sfmc-ux-tools-left-nav-bars] #divContent.expanded {
+    margin-left: 28px !important;
+}
+[data-sfmc-ux-tools-left-nav-handle] {
+    bottom: 0;
+    cursor: col-resize;
+    left: calc(var(--sfmc-ux-tools-left-nav-width, 236px) + 6px);
+    position: absolute;
+    top: 5px;
+    width: 12px;
+    z-index: 1;
+}
+/* the grip: two columns of six dots in the middle of the handle */
+[data-sfmc-ux-tools-left-nav-handle]::after {
+    background: radial-gradient(circle, rgb(112 110 107) 1px, transparent 1.5px) 0 0 / 4px 6px;
+    content: '';
+    height: 36px;
+    left: 2px;
+    position: absolute;
+    top: calc(50% - 18px);
+    width: 8px;
+}
+[data-sfmc-ux-tools-left-nav-handle]:hover,
+[data-sfmc-ux-tools-left-nav-handle]:focus-visible,
+html[data-sfmc-ux-tools-left-nav-dragging] [data-sfmc-ux-tools-left-nav-handle] {
+    background: rgb(1 118 211 / 25%);
+    outline: none;
+}
+[data-sfmc-ux-tools-left-nav-show] {
+    background: none;
+    border: 0;
+    cursor: pointer;
+    display: none;
+    float: left;
+    height: 26px;
+    margin: 5px 0 0 2px;
+    padding: 0;
+    width: 21px;
+}
+html[data-sfmc-ux-tools-left-nav-bars]:has(#divContent.expanded)
+    [data-sfmc-ux-tools-left-nav-show] {
+    display: block;
+}
+[data-sfmc-ux-tools-left-nav-show]:hover,
+[data-sfmc-ux-tools-left-nav-show]:focus-visible {
+    background: rgb(1 118 211 / 25%);
+    outline: none;
+}
+html[data-sfmc-ux-tools-left-nav-dragging],
+html[data-sfmc-ux-tools-left-nav-dragging] * {
+    cursor: col-resize !important;
+    user-select: none !important;
+}
+html[data-sfmc-ux-tools-left-nav-dragging] iframe {
+    pointer-events: none !important;
+}
+[data-sfmc-ux-tools-left-nav-guide] {
+    background: rgb(1 118 211);
+    bottom: 0;
+    pointer-events: none;
+    position: fixed;
+    top: 0;
+    width: 2px;
+    z-index: 10000;
+}

@@ -44,6 +44,14 @@ SET @firstName = AttributeValue("FirstName")
 set @firstName="Jane" endif ]%%
 <div class="greeting"><h1>Hello %%=v(@firstName)=%%</h1>
 <p>Welcome to the demo newsletter.</p></div>`,
+        // an email with a script for the browser, which Marketing Cloud removes when it saves
+        lost: `%%[
+SET @firstName = AttributeValue("FirstName")
+]%%
+<h1>Hello %%=v(@firstName)=%%</h1>
+<script>
+    document.querySelector("h1").classList.add("wave");
+</script>`,
         // where the capture script types
         typing: `%%[
 SET @firstName = AttributeValue("FirstName")
@@ -58,6 +66,17 @@ SET @firstName = AttributeValue("FirstName")
     const value = SAMPLES[sample];
     // the stylesheet leaves room above the code where boxes are shown
     document.body.classList.add(`sample-${sample}`);
+    if (sample === 'lost') {
+        // Content Builder marks the element around its editor with what is edited: here an email
+        document
+            .querySelector('#stage')
+            .classList.add(
+                'cloud-editor',
+                'editor-mode-htmlemail',
+                'editor-mode-message',
+                'editor-mode-asset',
+            );
+    }
 
     const editor = globalThis.CodeMirror(document.querySelector('#stage'), {
         value,

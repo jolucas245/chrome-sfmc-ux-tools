@@ -6,12 +6,15 @@ Brought to you by Jörn Berkefeld, the developer behind [SFMC DevTools (mcdev)](
 
 > Not affiliated with, endorsed by or supported by Salesforce.
 
+<a href="https://chromewebstore.google.com/detail/icngdchkbniamebbmhebciohjimfmjej"><img src="images/chrome-web-store-badge.png" alt="Available in the Chrome Web Store" width="206" height="58"></a>
+
 ## TL;DR
 
 Install it and Marketing Cloud gets easier to work in. Nothing to set up.
 
 - **Code editors you can read:** AMPscript and SSJS in colour, in a light or dark theme.
 - **Help while you type:** suggestions, explanations when you point at code, and mistakes underlined before you save.
+- **Warnings before Content Builder throws code away:** a `<script>` for the browser in an email, email template or content block, and an HTML tag typed into the text editor of a block, are marked. Marketing Cloud removes the one and stores the other as plain text, and still says the save worked.
 - **Tidy code with one click:** the **{ }** button or **Shift+Alt+F**, and **Ctrl+S** saves.
 - **Readable keys instead of random ones:** new automations, activities, data extensions, journeys, API events, sender profiles, send classifications, file locations, roles and users get a key made from their name, such as `Welcome_series`.
 - **No more "New Journey - 18 November…":** Journey Builder asks you for a real name before a new journey is saved.
@@ -20,9 +23,11 @@ Install it and Marketing Cloud gets easier to work in. Nothing to set up.
 - **Links to a Content Builder asset:** the address shows which asset is open, and in which business unit, so you can send it to a coworker who also has the extension. In another business unit, the link offers to switch first.
 - **Links into Email Studio:** the same for data extensions and lists, and for folders of data extensions, lists, groups and data filters.
 - **Links into Contact Builder:** the address in the browser now follows what you open in Contact Builder, so you can copy it and send it. Such a link also works for a coworker without the extension.
+- **A wider menu in Email Studio:** drag the right edge of the folder menu to make it wider or narrower. The width is remembered, and hiding the menu got a clearer button.
 - **Jump between the data extensions of a folder:** in Email Studio, click the name of an open data extension in the path above it to list the others of its folder. Pick one and it opens.
 - **Search data extension records on every field:** in Contact Builder, the search above the records of a data extension works on any field, also when the data extension has no primary key.
 - **Small fixes for everyday annoyances:** select all scopes of an installed package, and a pasted name or key that Marketing Cloud would ignore is used.
+- **Marketing Cloud Next:** the same help for AMPscript and for Handlebars in the content editor.
 - **Private:** nothing is collected and nothing leaves Marketing Cloud.
 
 ## Features
@@ -36,6 +41,7 @@ Every section below starts with the platforms it works on: [![Engagement](images
 #### Marketing Cloud ![Engagement](images/badge-engagement.svg)
 
 - **Content Builder**: the code view of emails, templates and content blocks, and new content blocks and emails for [readable keys](#readable-keys).
+- **Content Builder, the Content tab of a free form block and a text block**: the warning for [a tag typed into the text editor](#mistakes-are-underlined).
 - **Content Builder, opened from the Marketing Cloud menu**: the address of the page, for [links to an asset](#links-to-a-content-builder-asset).
 - **Email Studio, opened from the Marketing Cloud menu**: the address of the page, for [links into Email Studio](#links-into-email-studio).
 - **Contact Builder, opened from the Marketing Cloud menu**: the address of the page, for [links into Contact Builder](#links-into-contact-builder).
@@ -48,6 +54,7 @@ Every section below starts with the platforms it works on: [![Engagement](images
 - **Contact Builder**: the **Records** tab of a data extension, for the [search on every field](#search-the-records-of-a-data-extension-on-every-field).
 - **Email Studio**: the dialog that saves a data filter, for readable keys.
 - **Email Studio**: the page that creates a triggered send, for readable keys.
+- **Email Studio**: the menu on the left, for [a wider menu](#a-wider-menu-in-email-studio).
 - **Email Studio**: an open data extension, for [the other data extensions of its folder](#jump-between-the-data-extensions-of-a-folder).
 - **Journey Builder**: new journeys and their API events, for readable keys and for [a real name before saving](#journey-builder-a-real-name-before-saving).
 - **Setup**: the pages for a new sender profile, send classification, delivery profile, file location, role or user, for readable keys.
@@ -59,7 +66,8 @@ Every section below starts with the platforms it works on: [![Engagement](images
 #### Marketing Cloud ![Next](images/badge-next.svg)
 
 - **CMS content editor**: the code of an email made with **Create with HTML**, and the **HTML** component in emails, landing pages and the content blocks for both. It gets [suggestions](#suggestions-while-you-type), [explanations](#explanations-when-you-point-at-code), [help with a function's inputs](#help-with-a-functions-inputs), [underlined mistakes](#mistakes-are-underlined) with [fixes](#one-click-fixes) and [tidying up](#tidy-up-your-code-formatting), all for AMPscript.
-- **Left to Salesforce:** the colours and everything about Handlebars. The extension explains, suggests and checks no Handlebars helper there, and adds no theme and no formatting on save.
+- **Handlebars too:** inside `{{ }}` the extension suggests, explains and checks the Handlebars helpers of Marketing Cloud Next, as it does AMPscript.
+- **Left to Salesforce:** the colours. The extension adds no theme and no formatting on save there.
 
 ### Colours in the code editor
 
@@ -109,7 +117,10 @@ While you type code, a small list offers what fits. Pick an entry and it is writ
 - **Not covered yet**: in browser scripts, what belongs to a value, such as the functions of `document`.
 - **In Marketing Cloud Next**: every AMPscript function, also the ones the editor leaves out. While you type a function name inside `%%[ ]%%` or `%%= =%%`, and on **Ctrl+Space** there, the extension suggests all 64 AMPscript functions Marketing Cloud Next has.
     - The editor's own list only opens at the moment you type `%%=` or `%%[`. While it is open, ours stays away.
-    - Inside `{{ }}`, **Ctrl+Space** still opens the editor's own list of Handlebars helpers.
+    - **Handlebars helpers:** inside `{{ }}`, while you type a name and on **Ctrl+Space**, the extension suggests the helpers Marketing Cloud Next has. Picking one writes its name and a blank.
+        - After `{{#` only helpers that open a block are offered, such as `if` and `each`. Picked without the `#`, such a helper brings it along.
+        - Nothing is offered where no helper goes: after `{{/`, `{{>` and `{{!`, and where a field stands, as after the helper in `{{uppercase …}}`.
+        - While the editor's own list is open, ours stays away here too.
     - The editor's own list offers 37 AMPscript functions. These 27 are missing from it; with the extension you get them suggested, explained and with help for their inputs: `Base64Decode`, `Base64Encode`, `BeginImpressionRegion`, `BuildRowSetFromString`, `BuildRowSetFromXML`, `Char`, `ClaimRow`, `ClaimRowValue`, `ContentBlockByID`, `ContentBlockByKey`, `ContentBlockByName`, `DatePart`, `Domain`, `EndImpressionRegion`, `GUID`, `IsEmailAddress`, `IsNullDefault`, `MD5`, `RaiseError`, `RegExMatch`, `ReplaceList`, `RetrieveSalesforceObjects`, `SHA1`, `SHA256`, `SHA512`, `StringToHex`, `URLEncode`.
     - Counted in the editor of an email content block in November 2026; Salesforce may add to its lists at any time.
 
@@ -117,14 +128,15 @@ While you type code, a small list offers what fits. Pick an entry and it is writ
 
 [![Engagement](images/badge-engagement.svg)](#marketing-cloud-engagement) [![Next](images/badge-next.svg)](#marketing-cloud-next)
 
-![Animation: the mouse comes to rest on the function AttributeValue and a box opens that explains it, with its input, links, an example and whether Marketing Cloud Next has it](images/hover.gif)
+![Animation: the mouse comes to rest on the function AttributeValue and a box opens that explains it, with its input, a link to sfmc.guide, an example and whether Marketing Cloud Next has it](images/hover.gif)
 
 - **Rest the mouse** on an AMPscript function, keyword or variable, or on one of Marketing Cloud's SSJS functions. A box explains what it does, what you have to give it, what you get back, shows an example and links to the full documentation.
+- **One link, to the page that fits:** for AMPscript the box links the function's page on sfmc.guide, for Engagement or for Next, matching the Marketing Cloud you are in. Where sfmc.guide has no Engagement page yet, it links ampscript.guide. For SSJS the box links ssjs.guide.
 - **Your own SSJS code is explained too**: point at one of your variables or functions and the box says what it is.
 - **You can move the mouse into the box** to scroll it or click a link.
 - Nothing is shown inside browser scripts.
 - **In Marketing Cloud Next**: every AMPscript function Marketing Cloud Next has is explained.
-    - The editor explains 41 functions itself, in one sentence each. While the mouse is on AMPscript, the extension hides that box and shows its own, so you never get two explanations at once. On a Handlebars helper it is the other way round: the editor's box shows and ours does not.
+    - The editor explains 41 functions itself, in one sentence each. While the mouse is on AMPscript, the extension hides that box and shows its own, so you never get two explanations at once. On a Handlebars helper it is the same: our box explains the helper, with its inputs and an example, and says where Marketing Cloud Next behaves differently from Salesforce's documentation. On a field inside `{{ }}`, which only the editor knows, the editor's box stays.
     - 23 functions that came with API version 68 get no explanation from the editor at all. For those, ours is the only one: `Base64Decode`, `Base64Encode`, `BeginImpressionRegion`, `BuildRowSetFromString`, `BuildRowSetFromXML`, `Char`, `ClaimRow`, `ClaimRowValue`, `DatePart`, `Domain`, `EndImpressionRegion`, `GUID`, `IsEmailAddress`, `IsNullDefault`, `LookupOrderedRows`, `LookupRows`, `MD5`, `RegExMatch`, `SHA1`, `SHA256`, `SHA512`, `StringToHex`, `URLEncode`.
 
 ### Which box is the extension's
@@ -164,6 +176,9 @@ The extension checks your AMPscript and SSJS while you type.
 - **Script activity**: a mark next to the line number shows where a problem is. Rest the mouse on the mark to read all problems of that line in the same box.
 - **Fixed in the script activity:** Marketing Cloud's own check marked the `<script runat="server">` tag as an error although it is correct. That false error is gone. **Validate Syntax** still asks Marketing Cloud as before.
 - **SQL query activity**: your query is checked while you type, without a click on **Validate Syntax**.
+
+    ![The SQL query activity in Automation Studio: an unknown field is underlined in red, a box under the mouse says the column name is invalid, and "1 error" is shown next to the { } button instead of Validate Syntax](images/sql-check.png)
+
     - **A status tells you the result:** next to the **{ }** button, marked with the extension's icon, you read **Checking…**, **No problems found**, or how many errors and hints there are, such as **2 errors, 1 hint**. It is always about the text that is in the editor right now, and it is empty while the query is empty.
     - **The Validate Syntax button is hidden while there is a query:** the status says what a click on it would say, so the button is not needed. While the query is empty, nothing is checked and the button stays.
     - **When the button comes back:** if Marketing Cloud gives no answer, the status says **Could not check** and **Validate Syntax** is shown again, so you can always check by hand. The extension tries again the next time you type.
@@ -174,8 +189,25 @@ The extension checks your AMPscript and SSJS while you type.
     - **Hints too:** Marketing Cloud's hints, such as a missing `WHERE`, are shown in yellow at the place they name.
     - **One wrong field at a time:** Marketing Cloud names only one unknown field per check. Fix it and the next one shows up.
     - **When Marketing Cloud does not say where:** the mark is at the start of the query.
-- **Not covered**: browser scripts are not checked, and there is no list of all problems yet.
+- **A `<script>` that will be lost** (Content Builder): Marketing Cloud removes JavaScript for the browser from emails, email templates and content blocks when it saves them, and still says the save worked. The extension underlines the opening `<script>` tag.
+
+    ![A made-up email in the code view: the opening <script> tag of a script for the browser is underlined in red, and the box above it says that Marketing Cloud removes this script, tag and content, when you save, that the editor may still show it afterwards, and that runat="server" may be missing](images/lost-script.png)
+
+    - **Red** in an email and an email template, also in a block you edit inside an email.
+    - **Yellow** in a content block on its own: it may have been meant for a CloudPage, but the block loses the script when it is saved all the same.
+    - **Not marked:** server-side scripts (`<script runat="server">`), AMPscript, and everything in CloudPages, which keeps such scripts.
+    - **Good to know:** after the save the editor may still show the tag although the stored content no longer has it. If you meant server-side JavaScript, add `runat="server"` to the tag.
+- **A tag typed into the text editor** (Content Builder): the **Content** tab of a free form block and a text block is a text editor. A tag typed there, such as `<script>` or `<div>`, is saved as plain text: readers see it as written, and code in it never runs.
+
+    ![The Content tab of a made-up free form block: a note above the text editor says that "<script>" and one more look like HTML tags, are saved as plain text and belong in the HTML Editor tab; in the text, the typed <script> and </script> are underlined in yellow](images/rich-text.png)
+
+    - **Yellow underline** on every piece of text that looks like an HTML tag.
+    - **A note above the editor** says what happens and that HTML and code belong in the HTML Editor tab of the block.
+    - **Not marked:** formatting made with the editor's buttons, comparisons such as `a < b`, and AMPscript in `%%[ ]%%` and `%%= =%%`.
+    - **Only a warning:** saving works as before.
+- **Not covered**: what is inside a browser script is not checked, and there is no list of all problems yet.
 - **In Marketing Cloud Next**: AMPscript that Marketing Cloud Next does not support is underlined, such as a function that only Engagement has, and so is server-side JavaScript. Point at the underline to read why.
+    - **Handlebars too:** a helper that Marketing Cloud Next does not have, and a helper written in the wrong case (`properCase` instead of `propercase`), are underlined. So are a block closed with the wrong name, a block that is never closed, and an expression without its `}}`.
 
 ### One-click fixes
 
@@ -186,7 +218,7 @@ The extension checks your AMPscript and SSJS while you type.
 - Where the extension knows a remedy, the box of a problem offers it as a button.
 - **Ctrl+.** (**Cmd+.** on a Mac) opens the fixes for the problem at your cursor. **Enter** applies the first one, **Esc** closes the box.
 - **Ctrl+Z** undoes a fix in one step.
-- **In Marketing Cloud Next**: the same, for the AMPscript mistakes the extension underlines there.
+- **In Marketing Cloud Next**: the same, for the AMPscript mistakes the extension underlines there. A Handlebars helper in the wrong case is corrected with one click, also in the closing tag of its block.
 
 ### Jump to where something is defined
 
@@ -219,6 +251,7 @@ The extension checks your AMPscript and SSJS while you type.
 
 - **Ctrl+S** (**Cmd+S** on a Mac) in the code view of Content Builder saves your content, just like Marketing Cloud's **Save** button.
 - Without the extension, that key opens the browser's "save this page" window instead.
+- **Saves what you see:** Content Builder takes over a change from the editor only about half a second after it was made. The save waits until Content Builder has the code the editor shows, so a save right after typing, or right after tidying with format on save, keeps your last change. If Content Builder gives no sign for three seconds, the save goes through anyway.
 - Content Builder only: the activities of Automation Studio save at the end of their wizard.
 
 ### The browser's right-click menu in the code editor
@@ -536,6 +569,8 @@ The folder names of contents, the texts of a push content, the list for personal
 
 MobileConnect has no way to delete a message once it exists, and MobilePush only has one on the page of a single message. Marketing Cloud's API can delete them. The extension adds the buttons.
 
+![MobileConnect's message list with five messages ticked and the extension's Delete messages dialog: three messages will be deleted, two will not, each with its reason (one belongs to a transactional SMS message, one was made by a journey)](images/mobile-delete.png)
+
 **This deletes data in your account.** Everywhere else in these two apps the extension changes nothing by itself; here it deletes messages when you click and confirm. A deleted message cannot be brought back.
 
 - **Where the buttons are:**
@@ -553,11 +588,21 @@ MobileConnect has no way to delete a message once it exists, and MobilePush only
 - **What is deleted:** every chosen message that is not refused below: SMS messages whatever their status, and push messages that are drafts or inactive. This was tried on a real account with a draft SMS message and with an active, API-triggered SMS message made in MobileConnect, and with a push message.
 - **What is refused, and why:**
     - **An SMS message that belongs to a transactional SMS message.** Deleting it leaves the transactional message broken for good: it stays listed and keeps its key, but can neither be opened nor deleted (seen on a real account). Delete the transactional message in the panel [Transactional Messages](#transactional-messages-sms-push-and-ott) instead.
+        - **A link takes you there:** the line ends with **Open the transactional message**, which closes the dialog and opens the panel on that message.
     - To find out, the extension reads every transactional SMS message of the business unit, once per dialog. This can take a moment on an account with many of them. If any of them cannot be read, the SMS message is refused, because the danger cannot be ruled out. The one exception: a transactional message that Marketing Cloud says no longer exists is passed over, because it has no SMS message left.
     - Deleted transactional messages stay readable, so they do not get in the way of this check (measured on a real account).
     - **A push message that is triggered by the API and has the same name as a transactional push message.** Nothing else links the two, so the name decides. Delete the transactional message in the panel instead. If the transactional push messages cannot be read, the message is refused.
+        - **A link takes you there:** the line of such a message ends with **Open the transactional message**. The click closes the dialog and opens the panel on that message. When several transactional messages have the name, each gets a link with its key.
+        - **The list follows:** when you delete a transactional message in the panel and close the panel, the list of MobilePush is loaded again; after a transactional SMS message, the list of MobileConnect.
     - **A push message that is active.** Active push messages are not deleted, however they are sent; drafts and inactive ones are. MobilePush's own delete button refuses active messages too. Make it inactive first.
     - **A message that a journey made.** The journey would lose its message, and deleting such a message was never tried.
+        - **A link looks for the journey:** in MobilePush and in MobileConnect, the line of such a message ends with **Find the journey**. Only the click starts the search: the extension reads all journeys of the business unit, in all their versions, which can take half a minute on a large account. The dialog says how far it is.
+        - **Found:** the line gets a link per journey version that uses the message, such as **Open journey "Welcome" (version 2, Published)**, which opens the journey in a new tab. The message stays refused.
+        - **No journey uses it any more:** the journey, or that version of it, was deleted and left its message behind. Such a message moves to **Will be deleted**, although it is still active. This was tried on a real account for a push message and for an SMS message: the message was deleted and nothing else changed.
+        - **The list can move while it is read:** Marketing Cloud hands out the journeys in no fixed order, so now and then one comes twice and another not at all. The extension then reads the list again, three times at most, until it has every version.
+        - **Before the delete,** the journeys are read once more. A message that a journey uses by then is left alone.
+        - **Push, only plain notifications:** an inbox or in-app message of a journey stays refused even when no journey is found, because nobody has seen how a journey names those.
+        - **When in doubt, nothing changes:** if the journeys cannot be read completely, or the Marketing Cloud page is in another business unit than MobilePush, the message stays refused and the link can be clicked again. The same goes for an account with Single Send journeys that the list of journeys does not show.
     - **A message that cannot be read again, or whose answer lacks what the check needs.** When in doubt, nothing is deleted.
 - **Never tried, and deleted without a special check:**
     - SMS messages that are scheduled or bound to a keyword.
@@ -595,6 +640,9 @@ The address of Content Builder is always the same, whatever you open in it. So y
     - The extension waits up to one minute for the asset to show up in the search. After that it gives up and shows a note.
     - The search is only a helper. Once the asset is open, the search box is emptied again, so the list behind the asset shows everything as before.
 - **When your coworker is in another business unit:**
+
+    ![A dialog over the greyed-out Marketing Cloud page says the link belongs to the business unit Demo Brand EU while you are in Demo Brand US, with the buttons Switch and open and Stay here](images/link-dialog.png)
+
     - The asset is not searched for. A dialog of the extension says which business unit the link belongs to, by name, and which one your coworker is in.
     - The dialog comes early, while Marketing Cloud is still loading behind it.
     - The page behind the dialog is greyed out and cannot be used until one of the buttons is clicked. The Escape key and a click next to the dialog do not close it.
@@ -742,6 +790,8 @@ In Contact Builder, the address in the browser stays the same whatever you open.
 
 In Contact Builder, the **Records** tab of a data extension only searches its primary key fields. A data extension without a primary key cannot be searched at all. The extension lets you search on any field.
 
+![The Records tab of a made-up data extension in Contact Builder: the field menu of the search is open and lists the primary key field SubscriberKey on top, marked as primary key, then every other field from A to Z below a line; the search box says "Starts with… (% = any text)" and has the extension's icon next to it](images/record-search.png)
+
 - **Where:**
     - Contact Builder → **Data Extensions** → open a data extension → **Records**.
     - The same tab when Email Studio shows it.
@@ -781,6 +831,24 @@ In Contact Builder, the **Records** tab of a data extension only searches its pr
     - A search on a field that is not a primary key comes back in the order Marketing Cloud gives, not in the order of a column you sorted by.
 - **Always on:** there is no option for it.
 
+### A wider menu in Email Studio
+
+[![Engagement](images/badge-engagement.svg)](#marketing-cloud-engagement)
+
+The menu on the left of Email Studio, with the folders of data extensions, lists and more, is always 236 pixels wide. Long folder names are cut off, and deep folders need scrolling to the side. The extension lets you make it wider.
+
+- **Drag the right edge of the menu**, the strip with the dotted grip between the menu and the content. The mouse pointer turns into a double arrow there. While you drag, a blue line shows where the edge will be; the menu takes its new width when you let go.
+- **The width is remembered** on this computer, for every tab and every business unit, also after a reload. A new width also applies at once to the other open tabs of Email Studio.
+- **Double-click the edge** to give the menu its own width back.
+- **With the keyboard:** press Tab until the edge is chosen, then the arrow keys make the menu narrower or wider. **Home** gives it its own width back, **End** makes it as wide as it may be.
+- **Limits:** never narrower than 170 pixels, and never wider than 60% of the window. In a smaller window the menu gets narrower; the remembered width comes back when the window is wide enough again.
+- **Hide the menu** with the button above it, at the top right of the menu. It is Email Studio's own button; the extension gives it the icon of a side bar in place of the double arrow.
+- **Or drag the edge far to the left:** when you let go left of 170 pixels, the menu is hidden. It keeps the width it had before.
+- **Show the menu again** with the button at the top left, which has the same icon.
+- **One control for each:** a click on the strip between menu and content no longer hides the menu, and Email Studio's thin bar that showed a hidden menu is replaced by the button.
+- **Nothing is changed in Marketing Cloud**, and no request is made for it.
+- **Always on:** nothing changes until you drag the edge, so there is no option for it.
+
 ### Jump between the data extensions of a folder
 
 [![Engagement](images/badge-engagement.svg)](#marketing-cloud-engagement)
@@ -801,7 +869,7 @@ In Email Studio, an open data extension fills the page. To open another one of t
 
 ### Options
 
-![The options page with its six groups: theme, menu of the code editor, format on save, readable keys, journey names and saved logins, each with its default ticked](images/options.png)
+![The options page with its seven groups: theme, menu of the code editor, format on save, readable keys, journey names and saved logins, each with its default ticked, and links to a Content Builder asset with the button that forgets the business units this browser has seen](images/options.png)
 
 Click the extension's icon in Chrome's toolbar. Every change applies at once; no reload is needed.
 
@@ -832,7 +900,7 @@ If you write Marketing Cloud code in files, for example with [mcdev](https://git
 
 ### Chrome Web Store
 
-Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/icngdchkbniamebbmhebciohjimfmjej).
+<a href="https://chromewebstore.google.com/detail/icngdchkbniamebbmhebciohjimfmjej"><img src="images/chrome-web-store-badge.png" alt="Available in the Chrome Web Store" width="206" height="58"></a>
 
 ### From source (unpacked)
 
@@ -857,7 +925,7 @@ npm run build
 ```
 
 - `src/` holds the extension's sources. `npm run build` writes the loadable extension to `dist/extension` and packs that folder as `dist/chrome-sfmc-ux-tools-v<version>.zip` for the Chrome Web Store. For **Load unpacked**, always pick `dist/extension`, not `src`.
-- The build bundles `src/editor-format.js` with Prettier and `prettier-plugin-sfmc`, and `src/editor-language.js`, the files in `src/editor-language` and the `sfmc-language-lsp` package (currently 4.6.0) into one classic script each with esbuild. A third bundle, `src/editor-typescript.js`, holds TypeScript (6.0.3, the exact version the service is built for), the SSJS service of `sfmc-language-lsp/typescript` and the text of `ssjs-data`'s `sfmc-globals.d.ts`; it alone is minified. The build fails if a bundle calls `eval` or `new Function`, which Chrome does not allow. A fourth bundle, `src/editor-codemirror.js`, holds CodeMirror 5 with its HTML mode and hint addon, and `src/editor-codemirror.css` becomes CodeMirror's stylesheet: the code editor for the text of a transactional SMS, the only place where the extension brings an editor instead of working on the page's own. `src/transactional-messages.js` loads that bundle, `language-data.js`, `editor-highlight.js` and `editor-language.js` with `import()` into its own (isolated) world when an SMS form opens, which is why the manifest lists them as web accessible for `exacttarget.com`. All other files are copied as they are.
+- The build bundles `src/editor-format.js` with Prettier and `prettier-plugin-sfmc`, and `src/editor-language.js`, the files in `src/editor-language` and the `sfmc-language-lsp` package (currently 4.8.0) into one classic script each with esbuild. A third bundle, `src/editor-typescript.js`, holds TypeScript (6.0.3, the exact version the service is built for), the SSJS service of `sfmc-language-lsp/typescript` and the text of `ssjs-data`'s `sfmc-globals.d.ts`; it alone is minified. The build fails if a bundle calls `eval` or `new Function`, which Chrome does not allow. A fourth bundle, `src/editor-codemirror.js`, holds CodeMirror 5 with its HTML mode and hint addon, and `src/editor-codemirror.css` becomes CodeMirror's stylesheet: the code editor for the text of a transactional SMS, the only place where the extension brings an editor instead of working on the page's own. `src/transactional-messages.js` loads that bundle, `language-data.js`, `editor-highlight.js` and `editor-language.js` with `import()` into its own (isolated) world when an SMS form opens, which is why the manifest lists them as web accessible for `exacttarget.com`. All other files are copied as they are.
 - `src/editor-language/core` holds the editor-independent logic (text and a position in, plain data out), and the files next to it bind it to CodeMirror.
 - The TypeScript bundle is about 4 MB, so it is not a content script. When the language script sets up its first editor in a frame, it dispatches `sfmc-ux-tools:need-typescript` on the document; `src/editor-typescript-loader.js` (extension world) passes that on, and the service worker `src/background.js` injects `editor-typescript.js` into the page world of the document that asked with `chrome.scripting.executeScript` and answers whether that worked; after a failure the next editor that is set up asks again. TypeScript's diagnostics only run in the check after typing has paused. The language script looks the TypeScript API up at every use and falls back to the catalogue without it.
 - `node scripts/measure-typescript.mjs` (after a build) prints the size of the TypeScript bundle and how long it takes to start and to answer for a 1,500-line document.

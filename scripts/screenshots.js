@@ -24,7 +24,7 @@ const BROWSER =
     process.env.SCREENSHOT_BROWSER ||
     String.raw`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`;
 // the only folders the server hands out
-const SERVED = ['demo/', 'dist/extension/'];
+const SERVED = ['demo/', 'dist/extension/', 'node_modules/ace-builds/src-noconflict/'];
 const TYPES = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8',
@@ -1019,12 +1019,239 @@ async function scopes(context) {
     await page.close();
 }
 
+/**
+ * SQL query activity: Marketing Cloud's check underlines an unknown field while you type, the box
+ * says what is wrong where the mouse rests, and the status next to { } counts the errors.
+ *
+ * @param {object} context browser, origin and problems
+ */
+async function sqlCheck(context) {
+    const page = await openPage(context.browser, context.origin, context.problems, SHARP);
+    await page.goto(`${context.origin}/demo/sql-query.html?pointer=on#ActivityModal/300/new`);
+    await expect(
+        page,
+        'the underlined field and the status "1 error" in place of "Validate Syntax"',
+        () =>
+            document.querySelector('.ace_editor .sfmc-diagnostic-error') &&
+            document.querySelector('.sfmc-check-status-error')?.textContent === '1 error' &&
+            document.querySelector('.sfmc-format-beside') &&
+            getComputedStyle(document.querySelector('#queryValidateBtn')).display === 'none',
+    );
+    const place = await page.evaluate((wanted) => {
+        const editor = globalThis.demoEditor;
+        const lines = editor.getSession().getDocument().getAllLines();
+        const row = lines.findIndex((line) => line.includes(wanted));
+        const INTO = 4;
+        const { pageX, pageY } = editor.renderer.textToScreenCoordinates(
+            row,
+            lines[row].indexOf(wanted) + INTO,
+        );
+        return { x: pageX + 3, y: pageY + editor.renderer.lineHeight / 2 };
+    }, 'FavouriteColour');
+    await page.mouse.move(place.x, place.y);
+    await expect(page, 'the box that says what is wrong', () =>
+        document.querySelector('.sfmc-hover')?.textContent.includes('FavouriteColour'),
+    );
+    await pause(300);
+    await picture(
+        page,
+        'sql-check.png',
+        await regionOf(page, [
+            '.demo-query-dialog .demo-dialog-header',
+            '#queryEditor',
+            '.sfmc-hover',
+        ]),
+    );
+    await page.close();
+}
+
+/**
+ * Contact Builder: the search of the Records tab of a data extension, with its menu open on every
+ * field, the primary key on top, and the hint in the search box.
+ *
+ * @param {object} context browser, origin and problems
+ */
+async function recordSearch(context) {
+    const page = await openPage(context.browser, context.origin, context.problems, SHARP);
+    await page.goto(`${context.origin}/demo/record-search.html`);
+    await expect(
+        page,
+        'the hint in the search box and the icon of the extension',
+        () =>
+            document.querySelector('input[data-testid="records-search-input"]')?.placeholder ===
+                'Starts with… (% = any text)' &&
+            document.querySelector('.repeater-search + .sfmc-ux-tools-record-search-icon'),
+    );
+    await page.click('.de-search-dropdown .dropdown-toggle');
+    await expect(
+        page,
+        'the open menu with the primary key on top and every other field below a line',
+        () => {
+            const menu = document.querySelector('.de-search-dropdown .open > .dropdown-menu');
+            const entries = [...(menu?.querySelectorAll(':scope > li') ?? [])];
+            return (
+                entries.map((entry) => entry.dataset.value).join(',') ===
+                    'SubscriberKey,City,EmailAddress,FirstName,Points,SignupDate' &&
+                entries[0].classList.contains('sfmc-ux-tools-record-search-key') &&
+                entries[1].classList.contains('sfmc-ux-tools-record-search-first')
+            );
+        },
+    );
+    await pause(200);
+    await picture(
+        page,
+        'record-search.png',
+        await regionOf(page, [
+            '.demo-records-header',
+            '.repeater-records',
+            '.de-search-dropdown .dropdown-menu',
+        ]),
+    );
+    await page.close();
+}
+
+/**
+ * Mobile Studio: the dialog for the messages ticked in MobileConnect's list, which names those
+ * that will be deleted and, with the reason, those that will not.
+ *
+ * @param {object} context browser, origin and problems
+ */
+async function mobileDelete(context) {
+    const page = await openPage(context.browser, context.origin, context.problems, SHARP);
+    await page.goto(`${context.origin}/demo/mobile-delete.html`);
+    const row = 'input[data-sfmc-ux-tools-mobile-delete="row"]';
+    const ticked = ['101', '102', '103', '104', '105'];
+    await expect(
+        page,
+        'a checkbox in front of each message of the list',
+        (selector) => document.querySelectorAll(selector).length === 6,
+        row,
+    );
+    for (const id of ticked) {
+        await page.click(`${row}[value="${id}"]`);
+    }
+    const button = '[data-sfmc-ux-tools-mobile-delete="selected"]';
+    await expect(
+        page,
+        'the button Delete selected (5)',
+        (selector) => document.querySelector(selector)?.textContent === 'Delete selected (5)',
+        button,
+    );
+    await page.click(button);
+    await expect(page, 'the dialog with the messages that will and will not be deleted', () => {
+        const dialog = document.querySelector('dialog.sfmc-ux-tools-mobile-delete-dialog[open]');
+        const headings = [...(dialog?.querySelectorAll('h3') ?? [])].map(
+            (heading) => heading.textContent,
+        );
+        return (
+            headings.includes('Will be deleted (3)') &&
+            headings.includes('Will not be deleted (2)') &&
+            [...dialog.querySelectorAll('button')].some(
+                (item) => item.textContent === 'Delete 3 messages',
+            )
+        );
+    });
+    await pause(200);
+    await picture(
+        page,
+        'mobile-delete.png',
+        await regionOf(page, ['.demo-mobile-repeater', 'dialog[open]']),
+    );
+    await page.close();
+}
+
+/**
+ * Links to a Content Builder asset: the dialog about a link of another business unit, over the
+ * greyed-out Marketing Cloud page.
+ *
+ * @param {object} context browser, origin and problems
+ */
+async function linkDialog(context) {
+    const page = await openPage(context.browser, context.origin, context.problems, SHARP);
+    await page.goto(`${context.origin}/demo/link-dialog.html`);
+    await expect(
+        page,
+        'the dialog about the link to another business unit',
+        () =>
+            document.querySelector('dialog.sfmc-ux-tools-deep-link-dialog')?.open &&
+            document
+                .querySelector('dialog.sfmc-ux-tools-deep-link-dialog p')
+                ?.textContent.includes('Demo Brand EU (100000002)'),
+    );
+    await pause(300);
+    await picture(
+        page,
+        'link-dialog.png',
+        // some of the greyed-out page around the dialog
+        await regionOf(page, ['dialog.sfmc-ux-tools-deep-link-dialog'], { margin: 48 }),
+    );
+    await page.close();
+}
+
+/**
+ * Content Builder: a script for the browser in an email, underlined in red because Marketing Cloud
+ * removes it when it saves, with the box that says so.
+ *
+ * @param {object} context browser, origin and problems
+ */
+async function lostScript(context) {
+    const page = await editorPage(context, { sample: 'lost', pointer: 'on' }, SHARP);
+    await expect(page, 'the red underline on the <script> tag of the email', () =>
+        [...document.querySelectorAll('.CodeMirror .sfmc-diagnostic-error')].some((mark) =>
+            mark.textContent.includes('script'),
+        ),
+    );
+    const place = await placeOf(page, '<script>');
+    await page.mouse.move(place.x, place.y);
+    await expect(page, 'the box that says the script is removed on save', () =>
+        document
+            .querySelector('.sfmc-hover .sfmc-problem')
+            ?.textContent.includes('removes this <script> when you save'),
+    );
+    await pause(300);
+    await picture(page, 'lost-script.png', await regionOf(page, ['.CodeMirror', '.sfmc-hover']));
+    await page.close();
+}
+
+/**
+ * Content Builder: a tag typed into the text editor of a free form block, underlined in yellow,
+ * and the note above the editor.
+ *
+ * @param {object} context browser, origin and problems
+ */
+async function richText(context) {
+    const page = await openPage(context.browser, context.origin, context.problems, SHARP);
+    await page.goto(`${context.origin}/demo/rich-text.html`);
+    await expect(page, 'the note above the text editor', () =>
+        document
+            .querySelector('.sfmc-rich-text-notice')
+            ?.textContent.includes('saved as plain text'),
+    );
+    await expect(
+        page,
+        'the underline on the typed tag',
+        () =>
+            document
+                .querySelector('#editor iframe')
+                .contentWindow.CSS.highlights.get('sfmc-typed-tag')?.size > 0,
+    );
+    await pause(300);
+    await picture(
+        page,
+        'rich-text.png',
+        await regionOf(page, ['.block-tabs', '.sfmc-rich-text-notice', '#editor']),
+    );
+    await page.close();
+}
+
 const CAPTURES = {
     colours,
     completion,
     signature,
     hover,
     diagnostics,
+    lostScript,
+    richText,
     quickFix,
     format,
     panelList,
@@ -1035,6 +1262,10 @@ const CAPTURES = {
     journeyKey,
     journeyName,
     scopes,
+    sqlCheck,
+    recordSearch,
+    mobileDelete,
+    linkDialog,
     options,
 };
 

@@ -15,6 +15,12 @@
  * - right before its delete request, a message is read and judged once more;
  * - the only request that changes anything is DELETE of the message itself, for ids the user chose.
  * What Marketing Cloud answers is shown as text only.
+ *
+ * In MobilePush, a message that is refused says where to go on: one that belongs to a
+ * transactional push message has a link that opens the extension's panel on that message, and
+ * one that a journey made has a link that looks for the journey. The journeys are read by the
+ * Marketing Cloud page, because this frame may not read them, and only after that click. A
+ * journey-made message that no journey version uses any more may be deleted.
  */
 (() => {
     'use strict';
@@ -54,6 +60,9 @@
     // whoever starts it
     const PUSH_API = 1;
     const PUSH_ACTIVE = 2;
+    // messageType of a push message that is a plain notification ("Outbound"), the only kind
+    // for which it was seen how a journey names its message
+    const PUSH_OUTBOUND = 1;
     // the status of a transactional definition that was deleted
     const DELETED = 'deleted';
 
@@ -69,6 +78,15 @@
     const PUSH_UNREAD =
         'The transactional push messages could not be read completely, so it cannot be ruled out that it belongs to one of them.';
     const PUSH_IN_USE = 'It is active. Make it inactive first.';
+    const JOURNEY_USED =
+        'A journey uses it. The journey would lose its message, and deleting such a message was never tried.';
+    const JOURNEY_UNREAD =
+        'A journey made it, and the journeys could not be read completely, so it cannot be ruled out that one of them still uses it.';
+    const JOURNEY_FREE = 'A journey made it, but no journey that still exists uses it.';
+    const JOURNEY_SHAPE =
+        'A journey made it, and its id has another form than the one a journey names its message by, so it cannot be ruled out that one still uses it.';
+    const JOURNEY_KIND =
+        'A journey made it, and for this kind of push message nobody has seen how a journey names its message, so it cannot be ruled out that one still uses it.';
 
     /**
      * Says whether a value can be an id: text that is not empty, or a number.
@@ -98,6 +116,27 @@
     const isNone = (value) =>
         value === 0 || (typeof value === 'string' && /^[0-]*0[0-]*$/.test(value));
     /**
+     * Reads the number of a message out of its id. Seen live: the id of a MobileConnect message
+     * is three numbers with colons between them, written in Base64, such as "54:78:0", and the
+     * SMS activity of a journey names the same message as "54:625:0". The first number is the
+     * message, the second what kind of thing the id is for.
+     *
+     * @param {unknown} id an id of a message, as the API or a journey holds it
+     * @returns {string|undefined} the first number; nothing when the id has another form
+     */
+    const numberOf = (id) => {
+        if (typeof id !== 'string' || !/^[\w+/=-]+$/.test(id)) {
+            return;
+        }
+        let plain;
+        try {
+            plain = atob(id.replaceAll('-', '+').replaceAll('_', '/'));
+        } catch {
+            return;
+        }
+        return /^(\d+):\d+:\d+$/.exec(plain)?.[1];
+    };
+    /**
      * Reads a whole number that the API may write as a number or as text.
      *
      * @param {unknown} value what the API returned
@@ -118,10 +157,11 @@
      * @param {string} kind sms for MobileConnect, push for MobilePush
      * @param {string|number} id the id that was asked for
      * @param {unknown} message what the API answered for that id
-     * @param {{isComplete: boolean, ids?: Set.<string>, names?: Set.<string>}} [definitions] the transactional definitions of the kind: for sms the ids of all of them, for push the names of those that are not deleted, both as same() writes them; nothing when they were not read
-     * @returns {{isAllowed: boolean, reason?: string, name?: string, needs?: boolean}} whether it may be deleted, why not, its name when it has one, and needs when the judgement takes the definitions, which were not handed in
+     * @param {{isComplete: boolean, ids?: Set.<string>, names?: Set.<string>, keys?: Map.<string, string[]>}} [definitions] the transactional definitions of the kind: for sms the ids of all of them, for push the names of those that are not deleted and the keys of the definitions of each name, all as same() writes them; nothing when they were not read
+     * @param {{isComplete: boolean, users?: Map.<string, object[]>, smsUsers?: Map.<string, object[]>}} [journeys] the journey versions that use a push message, by the id of the message, and those that use an SMS message, by the number in its id; nothing when the journeys were not read
+     * @returns {{isAllowed: boolean, reason?: string, name?: string, needs?: boolean, isFindable?: boolean, isJourneyMade?: boolean, users?: object[], keys?: string[], note?: string}} whether it may be deleted, why not, its name when it has one, and needs when the judgement takes the definitions, which were not handed in. isFindable when reading the journeys could change the judgement, isJourneyMade and a note for a message of a journey that may be deleted, users for the journey versions that use it, keys for the transactional messages it is taken to belong to
      */
-    function judge(kind, id, message, definitions) {
+    function judge(kind, id, message, definitions, journeys) {
         if (typeof message !== 'object' || message === null || Array.isArray(message)) {
             return { isAllowed: false, reason: MISSING };
         }
@@ -142,11 +182,32 @@
             if (!isNone(held) && !isId(held)) {
                 return refuse(MISSING);
             }
+            // what the judgement says when nothing below refuses the message
+            let allowed = { isAllowed: true, name };
             if (sendMethod.trim().toUpperCase() === SMS_JOURNEY) {
-                return refuse(JOURNEY);
+                // the message does not name its journey; the journeys name their messages
+                if (!journeys) {
+                    return refuse(JOURNEY, { isFindable: true });
+                }
+                if (journeys.isComplete !== true || typeof journeys.smsUsers?.get !== 'function') {
+                    return refuse(JOURNEY_UNREAD, { isFindable: true });
+                }
+                // a journey names the message by the number in its id, see numberOf()
+                const number = numberOf(id);
+                if (number === undefined) {
+                    return refuse(JOURNEY_SHAPE);
+                }
+                const users = journeys.smsUsers.get(number);
+                if (users !== undefined) {
+                    return refuse(JOURNEY_USED, { users });
+                }
+                // seen live: such a message stays active when its journey is deleted, and is
+                // deleted cleanly then. It holds the id of a triggered send definition, which is
+                // held against the transactional definitions below like any other
+                allowed = { ...allowed, isJourneyMade: true, note: JOURNEY_FREE };
             }
             if (isNone(held)) {
-                return { isAllowed: true, name };
+                return allowed;
             }
             // the id alone proves nothing: a message activated in MobileConnect has one too.
             // Only a definition with that id does, whatever its name
@@ -156,7 +217,11 @@
             if (definitions.isComplete !== true || typeof definitions.ids?.has !== 'function') {
                 return refuse(SMS_UNREAD);
             }
-            return definitions.ids.has(same(held)) ? refuse(SMS_OWNED) : { isAllowed: true, name };
+            if (!definitions.ids.has(same(held))) {
+                return allowed;
+            }
+            const key = definitions.keys?.get?.(same(held));
+            return refuse(SMS_OWNED, { keys: typeof key === 'string' ? [key] : [] });
         }
         if (kind === 'push') {
             const initiator = code(message.sendInitiator);
@@ -165,7 +230,22 @@
                 return refuse(MISSING);
             }
             if (initiator === PUSH_JOURNEY) {
-                return refuse(JOURNEY);
+                // the message does not name its journey; the journeys name their messages
+                if (!journeys) {
+                    return refuse(JOURNEY, { isFindable: true });
+                }
+                if (journeys.isComplete !== true || typeof journeys.users?.get !== 'function') {
+                    return refuse(JOURNEY_UNREAD, { isFindable: true });
+                }
+                const users = journeys.users.get(same(id));
+                if (users !== undefined) {
+                    return refuse(JOURNEY_USED, { users });
+                }
+                // seen live for a plain notification only: such a message stays active when its
+                // journey is deleted, and is deleted cleanly then
+                return code(message.messageType) === PUSH_OUTBOUND
+                    ? { isAllowed: true, name, isJourneyMade: true, note: JOURNEY_FREE }
+                    : refuse(JOURNEY_KIND);
             }
             if (initiator === PUSH_API) {
                 // no id links a push message to its transactional definition; the name does
@@ -179,7 +259,8 @@
                     return refuse(PUSH_UNREAD);
                 }
                 if (definitions.names.has(same(name))) {
-                    return refuse(PUSH_OWNED);
+                    const keys = definitions.keys?.get?.(same(name));
+                    return refuse(PUSH_OWNED, { keys: Array.isArray(keys) ? keys : [] });
                 }
             }
             // MobilePush's own delete button refuses active messages, also those by location
@@ -247,6 +328,24 @@
     if (!app) {
         return;
     }
+    // what this frame asks of the Marketing Cloud page, through the extension: to open the panel
+    // Transactional Messages on one push message, and to read one page of the journeys
+    const PANEL_OPEN = 'sfmc-ux-tools:mobile:panel-open';
+    const JOURNEYS = 'sfmc-ux-tools:mobile:journeys';
+    // what that page tells this frame: its panel was closed after it deleted a message of a kind
+    const PANEL_CLOSED = 'sfmc-ux-tools:mobile:panel-closed';
+    // journeys the page reads at a time, which its answer must repeat, and the pages asked for
+    // at most; a list that is longer is taken as not read
+    const JOURNEY_PAGE = 50;
+    const MOST_JOURNEY_PAGES = 1000;
+    // how often the whole list of journeys is read at most. Seen live: its order is not fixed,
+    // and in one read of 1224 versions one came twice and one not at all; reading again finds it
+    const MOST_JOURNEY_PASSES = 3;
+    // the kind of journey that sends once ("Single Send")
+    const SINGLE_SEND = 'Quicksend';
+    // the id of a journey, and the address of the Marketing Cloud page, as a link is made of them
+    const JOURNEY_ID = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
+    const SHELL = /^https:\/\/mc\.[\da-z.-]+\.exacttarget\.com$/;
     const ICON = chrome.runtime.getURL('icons/icon16.png');
     // where the app passes calls on to the REST API
     const API = `${app.api ?? app.path}fuelapi/`;
@@ -398,7 +497,7 @@
      * not there any more has no message left and is passed over. For push, the names of those
      * that are not deleted.
      *
-     * @returns {Promise.<{isComplete: boolean, ids?: Set.<string>, names?: Set.<string>}>} what was read; not complete when anything of it could not be read or had another shape than expected
+     * @returns {Promise.<{isComplete: boolean, ids?: Set.<string>, names?: Set.<string>, keys?: Map.<string, string[]>}>} what was read; not complete when anything of it could not be read or had another shape than expected
      */
     async function readDefinitions() {
         const rows = await readList();
@@ -407,17 +506,24 @@
         }
         if (app.kind === 'push') {
             const names = new Set();
+            // several definitions can have the same name
+            const keys = new Map();
             for (const row of rows) {
                 if (typeof row.name !== 'string' || typeof row.status !== 'string') {
                     return { isComplete: false };
                 }
-                if (same(row.status) !== DELETED) {
-                    names.add(same(row.name));
+                if (same(row.status) === DELETED) {
+                    continue;
                 }
+                const name = same(row.name);
+                names.add(name);
+                keys.set(name, [...(keys.get(name) ?? []), row.definitionKey]);
             }
-            return { isComplete: true, names };
+            return { isComplete: true, names, keys };
         }
         const ids = new Set();
+        // the key of the definition with an id, for the link to it
+        const keys = new Map();
         let isComplete = true;
         let next = 0;
         const work = async () => {
@@ -427,6 +533,7 @@
                 if (answer.isOk) {
                     if (isId(answer.body.definitionId)) {
                         ids.add(same(answer.body.definitionId));
+                        keys.set(same(answer.body.definitionId), key);
                     } else {
                         isComplete = false;
                     }
@@ -439,16 +546,185 @@
             }
         };
         await Promise.all(Array.from({ length: DETAILS_AT_ONCE }, work));
-        return isComplete ? { isComplete, ids } : { isComplete: false };
+        return isComplete ? { isComplete, ids, keys } : { isComplete: false };
+    }
+
+    /**
+     * Asks the Marketing Cloud page for something, through the extension. It never throws.
+     *
+     * @param {object} message what to ask
+     * @returns {Promise.<object|undefined>} the answer; nothing when none came
+     */
+    async function askPage(message) {
+        try {
+            return await chrome.runtime.sendMessage(message);
+        } catch {
+            // the extension was updated or switched off, or the page does not listen
+        }
+    }
+
+    /**
+     * Reads the business unit this frame is logged in to.
+     *
+     * @returns {Promise.<string|undefined>} its MID; nothing when it could not be read
+     */
+    async function readMid() {
+        const answer = await ask('platform/v1/tokenContext');
+        const mid = answer.isOk ? answer.body.organization?.id : undefined;
+        return Number.isSafeInteger(mid) ? String(mid) : undefined;
+    }
+
+    /**
+     * Reads which journey versions use which push message. The Marketing Cloud page reads the
+     * journeys, page by page, because this frame may not. What was read counts as complete only
+     * when every page came, each for the business unit this frame is in, all with the same
+     * count, and as many different versions came as that count says. The list is read again, a
+     * few times at most, while versions are missing, because its order is not fixed. Journeys that
+     * send once are counted by themselves, because nobody has seen whether the list has them:
+     * as many of their versions must have come as the business unit has.
+     *
+     * @param {(text: string) => void} say takes how far it is
+     * @param {() => boolean} isWanted false once nobody waits for the rest any more
+     * @returns {Promise.<{isComplete: boolean, users?: Map.<string, object[]>, smsUsers?: Map.<string, object[]>}>} the versions that use a push message, by the id of the message, and those that use an SMS message, by the number in its id, each with its name, version, status and the address of its journey
+     */
+    async function readJourneys(say, isWanted) {
+        const incomplete = { isComplete: false };
+        const mid = await readMid();
+        if (mid === undefined) {
+            return incomplete;
+        }
+        // the versions that were read, by journey and version number
+        const versions = new Map();
+        let count;
+        let singleSends;
+        let origin;
+        /**
+         * Takes a page of the list as the Marketing Cloud page answered it.
+         *
+         * @param {object|undefined} answer what the page answered
+         * @param {number} page which page it is, from 1
+         * @returns {boolean} false when it did not come or had another shape than expected
+         */
+        const hasTaken = (answer, page) => {
+            if (
+                answer?.isOk !== true ||
+                answer.mid !== mid ||
+                answer.pageSize !== JOURNEY_PAGE ||
+                !Number.isSafeInteger(answer.count) ||
+                (count !== undefined && answer.count !== count) ||
+                !Number.isSafeInteger(answer.singleSends) ||
+                (singleSends !== undefined && answer.singleSends !== singleSends) ||
+                typeof answer.origin !== 'string' ||
+                !SHELL.test(answer.origin) ||
+                !Array.isArray(answer.journeys)
+            ) {
+                return false;
+            }
+            // every page is full, bar the last one, which has the rest
+            const rest = answer.count - (page - 1) * JOURNEY_PAGE;
+            if (answer.journeys.length !== Math.max(0, Math.min(JOURNEY_PAGE, rest))) {
+                return false;
+            }
+            ({ count, singleSends, origin } = answer);
+            for (const journey of answer.journeys) {
+                if (
+                    typeof journey?.id !== 'string' ||
+                    !JOURNEY_ID.test(journey.id) ||
+                    typeof journey.name !== 'string' ||
+                    typeof journey.type !== 'string' ||
+                    typeof journey.status !== 'string' ||
+                    !Number.isSafeInteger(journey.version) ||
+                    !Array.isArray(journey.pushIds) ||
+                    journey.pushIds.some((pushId) => typeof pushId !== 'string') ||
+                    !Array.isArray(journey.smsIds) ||
+                    // an id of another form cannot be held against a message
+                    journey.smsIds.some((smsId) => numberOf(smsId) === undefined)
+                ) {
+                    return false;
+                }
+                const key = `${same(journey.id)}/${journey.version}`;
+                const known = versions.get(key);
+                // seen live: the list is not in a fixed order, so a version can come on two
+                // pages while another one comes on none. Twice is fine, as long as it names the
+                // same messages both times
+                if (
+                    known &&
+                    (known.pushIds.join(',') !== journey.pushIds.join(',') ||
+                        known.smsIds.join(',') !== journey.smsIds.join(','))
+                ) {
+                    return false;
+                }
+                versions.set(key, journey);
+            }
+            return true;
+        };
+        /**
+         * Reads the whole list once and adds its versions to those that were read.
+         *
+         * @param {number} pass which read of the list this is, from 1
+         * @returns {Promise.<boolean>} false when it was given up
+         */
+        const hasReadAll = async (pass) => {
+            const again = pass === 1 ? '' : ' again, because the list moved meanwhile';
+            for (let page = 1; page <= MOST_JOURNEY_PAGES && isWanted(); page++) {
+                say(
+                    count === undefined
+                        ? 'Reading the journeys …'
+                        : `Reading the journeys${again}, page ${page} of ${Math.ceil(count / JOURNEY_PAGE)} …`,
+                );
+                if (!hasTaken(await askPage({ type: JOURNEYS, page }), page)) {
+                    return false;
+                }
+                if (page * JOURNEY_PAGE >= count) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        // until there are as many different versions as the business unit has: none is missing
+        for (let pass = 1; pass <= MOST_JOURNEY_PASSES && versions.size !== count; pass++) {
+            if (!(await hasReadAll(pass))) {
+                return incomplete;
+            }
+        }
+        if (versions.size !== count) {
+            return incomplete;
+        }
+        const users = new Map();
+        const smsUsers = new Map();
+        let singleSendsRead = 0;
+        for (const journey of versions.values()) {
+            if (journey.type === SINGLE_SEND) {
+                singleSendsRead++;
+            }
+            const user = {
+                name: journey.name,
+                version: journey.version,
+                status: journey.status,
+                href: `${origin}/cloud/#app/Journey%20Builder/%23${journey.id}/${journey.version}`,
+            };
+            for (const pushId of journey.pushIds) {
+                users.set(same(pushId), [...(users.get(same(pushId)) ?? []), user]);
+            }
+            for (const smsId of journey.smsIds) {
+                const number = numberOf(smsId);
+                smsUsers.set(number, [...(smsUsers.get(number) ?? []), user]);
+            }
+        }
+        // the frame may have been logged in to another business unit meanwhile
+        return singleSendsRead === singleSends && (await readMid()) === mid
+            ? { isComplete: true, users, smsUsers }
+            : incomplete;
     }
 
     /**
      * Reads a message and judges it. The transactional definitions are read when the first
-     * message needs them, once for all messages of the same click.
+     * message needs them, once for all messages of the same click. The journeys are taken as
+     * they were read for this click, if they were.
      *
-     * @param {{definitions?: Promise.<object>}} run what belongs to one click on a delete button
+     * @param {{definitions?: Promise.<object>, journeys?: object}} run what belongs to one click on a delete button
      * @param {string} id id of the message
-     * @returns {Promise.<{id: string, isAllowed: boolean, reason?: string, name?: string}>} the judgement
+     * @returns {Promise.<{id: string, isAllowed: boolean, reason?: string, name?: string}>} the judgement, with what judge() adds to it for the dialog
      */
     async function inspect(run, id) {
         const answer = await ask(app.message + encodeURIComponent(id));
@@ -459,12 +735,13 @@
                 reason: `It could not be read again, so nothing is known about it: ${answer.message}`,
             };
         }
-        let verdict = judge(app.kind, id, answer.body);
+        let verdict = judge(app.kind, id, answer.body, undefined, run.journeys);
         if (verdict.needs) {
             run.definitions ??= readDefinitions();
-            verdict = judge(app.kind, id, answer.body, await run.definitions);
+            verdict = judge(app.kind, id, answer.body, await run.definitions, run.journeys);
         }
-        return { id, isAllowed: verdict.isAllowed, reason: verdict.reason, name: verdict.name };
+        // a judgement that was handed the definitions no longer asks for them
+        return { id, ...verdict };
     }
 
     /**
@@ -478,12 +755,64 @@
     }
 
     /**
+     * Builds what a refused message offers to go on with: a link to each journey version that
+     * uses it, a link that looks for the journey, or a link to each transactional message it is
+     * taken to belong to.
+     *
+     * @param {{users?: object[], isFindable?: boolean, keys?: string[]}} item the message, as it was judged
+     * @param {{open: (key: string) => void, find: () => void}} act what the links do
+     * @returns {HTMLElement[]} the links
+     */
+    function offers(item, act) {
+        const links = [];
+        const users = item.users ?? [];
+        for (const user of users) {
+            const link = make(
+                'a',
+                'link',
+                `Open journey “${user.name}” (version ${user.version}${user.status ? `, ${user.status}` : ''})`,
+            );
+            link.href = user.href;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.title = `${MADE_BY}: opens this journey in a new tab.`;
+            links.push(link);
+        }
+        if (item.isFindable) {
+            const find = make('button', 'link', 'Find the journey');
+            find.type = 'button';
+            find.setAttribute(MARK, 'find');
+            find.title = `${MADE_BY}: reads all journeys of this business unit to find the one that uses this message. That can take a while.`;
+            find.addEventListener('click', act.find);
+            links.push(find);
+        }
+        const keys = item.keys ?? [];
+        for (const key of keys) {
+            const open = make(
+                'button',
+                'link',
+                keys.length === 1
+                    ? 'Open the transactional message'
+                    : `Open the transactional message “${key}”`,
+            );
+            open.type = 'button';
+            open.setAttribute(MARK, 'open');
+            open.value = key;
+            open.title = `${MADE_BY}: closes this dialog and opens the transactional message in the panel Transactional Messages.`;
+            open.addEventListener('click', () => act.open(key));
+            links.push(open);
+        }
+        return links;
+    }
+
+    /**
      * Builds a list of messages, each by its name and with what is said about it.
      *
      * @param {{id: string, name?: string, said?: string}[]} items the messages
+     * @param {{open: (key: string) => void, find: () => void}} [act] what the links of a message do; without it the messages get none
      * @returns {HTMLUListElement} the list
      */
-    function listed(items) {
+    function listed(items, act) {
         const list = make('ul', 'list');
         for (const item of items) {
             const entry = make('li');
@@ -493,6 +822,10 @@
             entry.append(name);
             if (item.said) {
                 entry.append(make('span', 'said', ` — ${item.said}`));
+            }
+            const links = act ? offers(item, act) : [];
+            for (const link of links) {
+                entry.append(' ', link);
             }
             list.append(entry);
         }
@@ -505,12 +838,23 @@
      * was shown. A failure does not stop the rest.
      *
      * @param {object} run what belongs to this click
-     * @param {{id: string, name: string}[]} allowed the messages to delete
+     * @param {{id: string, name: string, isJourneyMade?: boolean}[]} allowed the messages to delete
      * @param {HTMLElement} progress where it says how far it is
      * @returns {Promise.<{id: string, name: string, state: string, said?: string}[]>} what came of each
      */
     async function carryOut(run, allowed, progress) {
         const results = [];
+        // what was read of the journeys for the question may be out of date: it is not kept, and
+        // they are read anew, once, when a message to delete is a journey's
+        run.journeys = undefined;
+        if (allowed.some((item) => item.isJourneyMade)) {
+            run.journeys = await readJourneys(
+                (text) => {
+                    progress.textContent = text;
+                },
+                () => run.dialog.isConnected,
+            );
+        }
         for (const [index, item] of allowed.entries()) {
             const done = (state, said) => {
                 results.push({ ...item, state, said });
@@ -603,40 +947,94 @@
         document.body.append(box);
         box.showModal();
 
-        const checked = [];
-        for (const id of ids) {
-            checked.push(await inspect(run, id));
-            if (run.isOver) {
+        /**
+         * Reads and judges every chosen message.
+         *
+         * @returns {Promise.<object[]|undefined>} the judgements; nothing when the dialog was closed meanwhile
+         */
+        const check = async () => {
+            const checked = [];
+            for (const id of ids) {
+                checked.push(await inspect(run, id));
+                if (run.isOver) {
+                    return;
+                }
+            }
+            return checked;
+        };
+        const act = {
+            // the panel opens on top; this dialog has nothing more to say then
+            open: (key) => {
+                askPage({ type: PANEL_OPEN, kind: app.kind, key });
+                close();
+            },
+            // one search serves every message of the dialog; then all are read and judged anew
+            find: async () => {
+                const progress = make('p', 'progress');
+                progress.setAttribute('role', 'status');
+                body.replaceChildren(progress);
+                buttons.replaceChildren(button('cancel', 'Cancel', close));
+                run.journeys = await readJourneys(
+                    (text) => {
+                        progress.textContent = text;
+                    },
+                    () => !run.isOver,
+                );
+                if (run.isOver) {
+                    return;
+                }
+                progress.textContent = `Reading ${messages(ids.length)} again …`;
+                const again = await check();
+                if (again) {
+                    draw(again);
+                }
+            },
+        };
+        /**
+         * Shows which messages will be deleted and which will not, and the button that deletes.
+         *
+         * @param {object[]} checked the judgements
+         */
+        function draw(checked) {
+            const allowed = checked
+                .filter((item) => item.isAllowed)
+                .map((item) => ({ ...item, said: item.note }));
+            const refused = checked
+                .filter((item) => !item.isAllowed)
+                .map((item) => ({ ...item, said: item.reason }));
+            body.replaceChildren();
+            if (allowed.length) {
+                body.append(
+                    make('h3', undefined, `Will be deleted (${allowed.length})`),
+                    listed(allowed),
+                    make(
+                        'p',
+                        'warning',
+                        'Marketing Cloud cannot bring a deleted message back. Whatever still sends with it will fail.',
+                    ),
+                );
+            }
+            if (refused.length) {
+                body.append(
+                    make('h3', undefined, `Will not be deleted (${refused.length})`),
+                    listed(refused, act),
+                );
+            }
+            if (allowed.length === 0) {
+                buttons.replaceChildren(button('cancel', 'Close', close));
                 return;
             }
-        }
-        const allowed = checked.filter((item) => item.isAllowed);
-        const refused = checked
-            .filter((item) => !item.isAllowed)
-            .map((item) => ({ ...item, said: item.reason }));
-        body.replaceChildren();
-        if (allowed.length) {
-            body.append(
-                make('h3', undefined, `Will be deleted (${allowed.length})`),
-                listed(allowed),
-                make(
-                    'p',
-                    'warning',
-                    'Marketing Cloud cannot bring a deleted message back. Whatever still sends with it will fail.',
-                ),
+            buttons.replaceChildren(
+                button('delete', `Delete ${messages(allowed.length)}`, () => carry(allowed)),
+                button('cancel', 'Cancel', close),
             );
         }
-        if (refused.length) {
-            body.append(
-                make('h3', undefined, `Will not be deleted (${refused.length})`),
-                listed(refused),
-            );
-        }
-        if (allowed.length === 0) {
-            buttons.replaceChildren(button('cancel', 'Close', close));
-            return;
-        }
-        const confirm = button('delete', `Delete ${messages(allowed.length)}`, async () => {
+        /**
+         * Deletes the messages the user confirmed and shows what came of each.
+         *
+         * @param {object[]} allowed the messages to delete
+         */
+        async function carry(allowed) {
             run.isBusy = true;
             const progress = make('p', 'progress');
             body.replaceChildren(progress);
@@ -676,8 +1074,11 @@
                 return;
             }
             buttons.replaceChildren(button('cancel', 'Close', close));
-        });
-        buttons.replaceChildren(confirm, button('cancel', 'Cancel', close));
+        }
+        const checked = await check();
+        if (checked) {
+            draw(checked);
+        }
     }
 
     /**
@@ -906,6 +1307,24 @@
             selected.delete(box.value);
         }
         syncList();
+    });
+    // a transactional message deleted in the extension's panel takes its message with it: the
+    // list of this app is read again once the panel is closed, unless a dialog of this script is
+    // open, which reads what it needs itself
+    chrome.runtime.onMessage.addListener((message, sender) => {
+        if (
+            // passed on by the extension itself, not sent by the script of a page
+            sender.id === chrome.runtime.id &&
+            !sender.tab &&
+            message?.type === PANEL_CLOSED &&
+            message.kind === app.kind &&
+            app.repeater &&
+            document.querySelector(app.repeater) &&
+            !dialog?.isConnected
+        ) {
+            shared.reload();
+        }
+        return false;
     });
     // both apps draw their pages without loading them: the route changes, and so does the page
     new MutationObserver(sync).observe(document.documentElement, {

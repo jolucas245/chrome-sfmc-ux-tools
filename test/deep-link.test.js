@@ -4891,3 +4891,103 @@ test('the background script passes the requests to close and to open on from the
     }
     assert.equal(relay.passed.length, count);
 });
+
+test('the background script passes MobilePush’s requests to the page, and the page’s note down to the frames', async () => {
+    const PANEL_OPEN = 'sfmc-ux-tools:mobile:panel-open';
+    const JOURNEYS = 'sfmc-ux-tools:mobile:journeys';
+    const PANEL_CLOSED = 'sfmc-ux-tools:mobile:panel-closed';
+    const FRAME = {
+        id: EXTENSION,
+        tab: { id: 7 },
+        frameId: 3,
+        documentId: 'A1',
+        url: 'https://mc.s7.marketingcloudapps.com/mobilepush/',
+    };
+    const { send, passed } = background((message) =>
+        message.type === JOURNEYS ? { isOk: true, journeys: [] } : undefined,
+    );
+    // only the type, the one kind and a key or a page of the expected form
+    assert.equal(
+        await send({ type: PANEL_OPEN, kind: 'sms', key: 'my key', more: 1 }, FRAME),
+        undefined,
+    );
+    assert.deepEqual(await send({ type: JOURNEYS, page: 3, more: 1 }, FRAME), {
+        isOk: true,
+        journeys: [],
+    });
+    // Marketing Cloud writes the path with capitals at times
+    const capitals = { ...FRAME, url: 'https://mc.s7.marketingcloudapps.com/MobilePush/' };
+    await send({ type: PANEL_OPEN, kind: 'push', key: 'k' }, capitals);
+    // MobileConnect asks the same, from the app of its list and from the older one
+    for (const path of ['MobileConnectFuel3', 'mobileconnectfuel3', 'Mobile', 'mobile']) {
+        const connect = { ...FRAME, url: `https://mc.s7.marketingcloudapps.com/${path}/` };
+        assert.notEqual(send({ type: JOURNEYS, page: 1 }, connect), false, path);
+    }
+    passed.length = 3;
+    // a kind that is none is passed on as none
+    await send({ type: PANEL_OPEN, kind: 'ott', key: 'k' }, FRAME);
+    assert.deepEqual(passed.pop().message, { type: PANEL_OPEN, kind: null, key: 'k' });
+    assert.deepEqual(passed, [
+        {
+            tabId: 7,
+            message: { type: PANEL_OPEN, kind: 'sms', key: 'my key' },
+            options: { frameId: 0 },
+        },
+        { tabId: 7, message: { type: JOURNEYS, page: 3 }, options: { frameId: 0 } },
+        {
+            tabId: 7,
+            message: { type: PANEL_OPEN, kind: 'push', key: 'k' },
+            options: { frameId: 0 },
+        },
+    ]);
+    passed.length = 0;
+    for (const key of [undefined, null, 5, '', 'a\nb', 'x'.repeat(201)]) {
+        await send({ type: PANEL_OPEN, kind: 'push', key }, FRAME);
+    }
+    for (const page of [undefined, '1', 0, -1, 1.5, 1001]) {
+        await send({ type: JOURNEYS, page }, FRAME);
+    }
+    for (const { message } of passed) {
+        assert.equal(message.type === PANEL_OPEN ? message.key : message.page, null);
+    }
+    assert.equal(passed.length, 12);
+    passed.length = 0;
+
+    for (const other of [
+        { id: 'another-extension' },
+        { tab: undefined },
+        // the page itself
+        { frameId: 0 },
+        { url: undefined },
+        { url: 'https://mc.s7.marketingcloudapps.com/AutomationStudioFuel3/' },
+        { url: 'https://mc.s7.marketingcloudapps.com/mobiles/' },
+        {
+            url: 'https://content-builder.s7.marketingcloudapps.com/mobilepush/x'.replace(
+                '/mobilepush/x',
+                '/',
+            ),
+        },
+        { url: FRAME.url.replace('https:', 'http:') },
+        { url: 'https://mc.s7.marketingcloudapps.com.example.org/mobilepush/' },
+        { url: 'https://example.org/mobilepush/' },
+    ]) {
+        for (const type of [PANEL_OPEN, JOURNEYS]) {
+            const sender = { ...FRAME, ...other };
+            assert.equal(send({ type, key: 'k', page: 1 }, sender), false, JSON.stringify(other));
+        }
+    }
+    assert.equal(passed.length, 0);
+
+    // downward: from the Marketing Cloud page only, to every frame of its tab, the kind alone
+    const PAGE_SENDER = { id: EXTENSION, tab: { id: 7 }, frameId: 0, documentId: 'A0', url: SHELL };
+    assert.equal(send({ type: PANEL_CLOSED, kind: 'push', more: 1 }, PAGE_SENDER), false);
+    assert.equal(send({ type: PANEL_CLOSED, kind: 'sms' }, PAGE_SENDER), false);
+    assert.equal(send({ type: PANEL_CLOSED, kind: 'ott' }, PAGE_SENDER), false);
+    // a frame cannot send the page's note, and no other frame can ask what MobilePush asks
+    assert.equal(send({ type: PANEL_CLOSED, kind: 'push' }, FRAME), false);
+    assert.equal(send({ type: PANEL_CLOSED, kind: 'push' }, { ...PAGE_SENDER, id: 'x' }), false);
+    assert.deepEqual(passed, [
+        { tabId: 7, message: { type: PANEL_CLOSED, kind: 'push' }, options: undefined },
+        { tabId: 7, message: { type: PANEL_CLOSED, kind: 'sms' }, options: undefined },
+    ]);
+});
