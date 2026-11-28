@@ -1,20 +1,27 @@
 /*
  * SFMC UX Tools — script of the Marketing Cloud page for the list of data extensions that Email
- * Studio's frame shows next to the name of an open data extension.
+ * Studio's frame opens from the path above an open data extension.
  *
  * Asked by the background script for the folder of one data extension, it reads that data
- * extension and the data extensions of its folder from Marketing Cloud's API, through this page,
- * and answers with the folder and the id and name of each data extension, nothing else. It reads
- * nothing until it is asked, and it changes nothing.
+ * extension and the data extensions of its folder from Marketing Cloud's documented REST API
+ * (data/v1/customobjects), through this page, and answers with the folder and the id and name of
+ * each data extension that Email Studio lists, nothing else. It reads nothing until it is asked,
+ * and it changes nothing.
  */
 (() => {
     'use strict';
 
     const LIST_MESSAGE = 'sfmc-ux-tools:de-switcher:list';
-    const API = '/cloud/fuelapi/internal/v1/customobjects/';
+    const API = '/cloud/fuelapi/data/v1/customobjects/';
+    // what Email Studio lists in a folder: data extensions and filtered data extensions. The
+    // channels' own data extensions (481, Contacts) and Audience Builder's results (364,
+    // Audience) are in the folder too, but Email Studio does not show them
+    const LISTED_TYPES = new Set([310, 743]);
     const DE_ID = /^[\dA-Fa-f]{8}-[\dA-Fa-f]{4}-[\dA-Fa-f]{4}-[\dA-Fa-f]{4}-[\dA-Fa-f]{12}$/;
     const PAGE_SIZE = 25;
     const MOST_PAGES = 40;
+    // the pages after the first that are read at the same time
+    const PAGES_AT_ONCE = 6;
     const MOST_NAME = 200;
 
     /**
@@ -59,7 +66,7 @@
      */
     async function pageOf(folder, page) {
         const body = await ask(
-            `category/${folder}/?retrievalType=1&$page=${page}&$pagesize=${PAGE_SIZE}&$orderBy=Name%20ASC`,
+            `category/${folder}?$page=${page}&$pagesize=${PAGE_SIZE}&$orderBy=Name%20ASC`,
         );
         return Array.isArray(body?.items) ? body : undefined;
     }
@@ -75,6 +82,7 @@
             .filter(
                 (item) =>
                     isRecord(item) &&
+                    LISTED_TYPES.has(item.partnerApiObjectTypeId) &&
                     typeof item.id === 'string' &&
                     DE_ID.test(item.id) &&
                     typeof item.name === 'string' &&
@@ -102,15 +110,19 @@
         const count = Number.isSafeInteger(first.count) ? first.count : first.items.length;
         const pages = Math.min(MOST_PAGES, Math.ceil(count / PAGE_SIZE));
         const all = [first];
-        for (let page = 2; page <= pages; page += 1) {
-            const next = await pageOf(folder, page);
-            if (!next) {
+        for (let from = 2; from <= pages; from += PAGES_AT_ONCE) {
+            const numbers = Array.from(
+                { length: Math.min(PAGES_AT_ONCE, pages - from + 1) },
+                (_, index) => from + index,
+            );
+            const read = await Promise.all(numbers.map((page) => pageOf(folder, page)));
+            if (read.includes(undefined)) {
                 return { isFailed: true };
             }
-            if (next.items.length === 0) {
+            all.push(...read);
+            if (read.some((page) => page.items.length === 0)) {
                 break;
             }
-            all.push(next);
         }
         const seen = new Set();
         const items = all

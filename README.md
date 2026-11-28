@@ -856,12 +856,12 @@ The menu on the left of Email Studio, with the folders of data extensions, lists
 In Email Studio, an open data extension fills the page. To open another one of the same folder, you have to go back to the folder first. The extension lets you jump there directly.
 
 - **Where:** Email Studio → **Subscribers** → **Data Extensions** → open a data extension.
-- **Click its name in the path above it** (Data Extensions > … > the name), or the small arrow right after it. A list of all data extensions of the same folder opens, sorted by name. The open one is shown in bold.
+- **Click its name in the path above it** (Data Extensions > … > the name), or the small arrow right after it. A list of the data extensions of the same folder opens, sorted by name, with the open one in bold and in view. It holds what Email Studio lists there: data extensions and filtered data extensions.
 - **Pick one** and Email Studio opens it, the same as by a click in the folder. The page is not loaded again.
 - **Search:** the box at the top keeps the data extensions whose name holds what you type. Upper and lower case do not matter.
 - **With the keyboard:** press Tab until the name in the path is chosen, then **Enter** or **Space** opens the list. The arrow keys move between the search box and the list, **Enter** opens the chosen data extension, **Esc** closes the list.
 - **Read fresh each time:** the list is read from Marketing Cloud whenever you open it, so a data extension that was just created or moved is there.
-- **How it works:** the extension asks Marketing Cloud, through the Marketing Cloud page you are logged in to, for the folder of the open data extension and for the data extensions in that folder. Only their ids and names are used. Nothing is changed.
+- **How it works:** the extension asks Marketing Cloud's documented REST API, through the Marketing Cloud page you are logged in to, for the folder of the open data extension and for the data extensions in that folder. Only their ids and names are used. Nothing is changed.
 - **Limits:**
     - Subfolders are not listed, only the data extensions of the folder itself.
     - At most 1,000 data extensions are listed. A folder with more says so below the search box.

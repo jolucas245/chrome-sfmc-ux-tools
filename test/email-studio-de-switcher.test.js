@@ -34,7 +34,8 @@ const ENTRIES = [
  * @returns {Promise.<object>} the window, its document, what was asked and opened, and helpers
  */
 async function frame(answer = () => ({ items: ENTRIES, isCut: false })) {
-    const { window } = new JSDOM(`<!doctype html><html><body>${HEADER}</body></html>`, {
+    const body = `<div id="carbon-legacy-content"><div id="carbon-legacy-dynamic">${HEADER}</div></div>`;
+    const { window } = new JSDOM(`<!doctype html><html><body>${body}</body></html>`, {
         runScripts: 'outside-only',
         url: 'https://members.s7.exacttarget.com/C12/Default.aspx#Subscribers',
     });
@@ -49,6 +50,40 @@ async function frame(answer = () => ({ items: ENTRIES, isCut: false })) {
             },
         },
     };
+    const watching = [];
+    const Observer = window.MutationObserver;
+    window.MutationObserver = class extends Observer {
+        /**
+         * Notes what is watched.
+         *
+         * @param {Node} target what is watched
+         * @param {object} options how
+         */
+        observe(target, options) {
+            watching.push(target.id || target.tagName.toLowerCase());
+            super.observe(target, options);
+        }
+
+        /**
+         * Notes that nothing is watched any more.
+         */
+        disconnect() {
+            watching.push('off');
+            super.disconnect();
+        }
+    };
+    const scrolled = [];
+    const Scrolling = class {
+        /**
+         * Notes which element is scrolled to, and how.
+         *
+         * @param {object} options how
+         */
+        scrollIntoView(options) {
+            scrolled.push({ name: Reflect.get(this, 'textContent'), block: options.block });
+        }
+    };
+    window.HTMLElement.prototype.scrollIntoView = Scrolling.prototype.scrollIntoView;
     window.eval(frameScript);
     const { document } = window;
     document.addEventListener(GO, (event) => {
@@ -58,6 +93,8 @@ async function frame(answer = () => ({ items: ENTRIES, isCut: false })) {
     const panel = () => document.querySelector('.sfmc-ux-tools-de-switcher-panel');
     const step = () => [...document.querySelectorAll('.breadcrumb-step')].at(-1);
     return {
+        watching,
+        scrolled,
         window,
         document,
         asked,
@@ -292,21 +329,27 @@ function shell(answers) {
     return { send, fetched };
 }
 
-const API = '/cloud/fuelapi/internal/v1/customobjects/';
+const API = '/cloud/fuelapi/data/v1/customobjects/';
 const pageAddress = (page) =>
-    `${API}category/${FOLDER}/?retrievalType=1&$page=${page}&$pagesize=25&$orderBy=Name%20ASC`;
+    `${API}category/${FOLDER}?$page=${page}&$pagesize=25&$orderBy=Name%20ASC`;
+const listed = (entry, type = 310) => ({ ...entry, partnerApiObjectTypeId: type });
 const made = (count, from = 0) =>
-    Array.from({ length: count }, (_, index) => ({
-        id: `0a1b2c3d-0000-4000-8000-${String(from + index).padStart(12, '0')}`,
-        name: `DE_${from + index}`,
-        customerKey: 'not passed on',
-        totalRowCount: 5,
-    }));
+    Array.from({ length: count }, (_, index) =>
+        listed({
+            id: `0a1b2c3d-0000-4000-8000-${String(from + index).padStart(12, '0')}`,
+            name: `DE_${from + index}`,
+            key: 'not passed on',
+            rowCount: 5,
+        }),
+    );
 
 test('the page reads the folder of the data extension, then the data extensions of that folder, and passes on ids and names only', async () => {
     const { send, fetched } = shell({
         [API + OPEN]: { categoryId: FOLDER, name: 'Alpha_Log' },
-        [pageAddress(1)]: { count: 3, items: ENTRIES.map((entry) => ({ ...entry, extra: 1 })) },
+        [pageAddress(1)]: {
+            count: 3,
+            items: ENTRIES.map((entry) => ({ ...listed(entry), extra: 1 })),
+        },
     });
     assert.deepEqual(await send({ type: LIST, id: OPEN }), {
         folder: FOLDER,
@@ -364,16 +407,67 @@ test('the page fails when the data extension, its folder or a page cannot be rea
         [pageAddress(1)]: {
             count: 6,
             items: [
-                ENTRIES[0],
-                ENTRIES[0],
-                { id: '1', name: 'x' },
-                { id: OTHER, name: '' },
-                { id: OTHER, name: 'x'.repeat(201) },
+                listed(ENTRIES[0]),
+                listed(ENTRIES[0]),
+                listed({ id: '1', name: 'x' }),
+                listed({ id: OTHER, name: '' }),
+                listed({ id: OTHER, name: 'x'.repeat(201) }),
                 null,
             ],
         },
     }).send({ type: LIST, id: OPEN });
     assert.deepEqual(odd.items, [ENTRIES[0]]);
+});
+
+test('the page lists what Email Studio lists: data extensions and filtered ones, not the channels’ own or audiences', async () => {
+    const answer = await shell({
+        [API + OPEN]: { categoryId: FOLDER },
+        [pageAddress(1)]: {
+            count: 6,
+            items: [
+                listed(ENTRIES[0]),
+                listed(ENTRIES[1], 743),
+                listed({ id: THIRD, name: '_MobileAddress' }, 481),
+                listed({ id: made(1, 7)[0].id, name: 'Devices' }, 364),
+                { id: made(1, 8)[0].id, name: 'No type' },
+                listed({ id: made(1, 9)[0].id, name: 'Text type' }, '310'),
+            ],
+        },
+    }).send({ type: LIST, id: OPEN });
+    assert.deepEqual(answer.items, [ENTRIES[0], ENTRIES[1]]);
+});
+
+test('the page reads the pages after the first several at a time', async () => {
+    const answers = { [API + OPEN]: { categoryId: FOLDER } };
+    for (let page = 1; page <= 9; page += 1) {
+        answers[pageAddress(page)] = { count: 225, items: made(25, (page - 1) * 25) };
+    }
+    let open = 0;
+    let most = 0;
+    const listeners = [];
+    const chrome = {
+        runtime: {
+            id: EXTENSION,
+            onMessage: {
+                addListener: (listener) => {
+                    listeners.push(listener);
+                },
+            },
+        },
+    };
+    const fetch = async (address) => {
+        open += 1;
+        most = Math.max(most, open);
+        await tick();
+        open -= 1;
+        return { ok: true, status: 200, json: async () => structuredClone(answers[address]) };
+    };
+    vm.runInNewContext(shellScript, { chrome, fetch });
+    const { promise, resolve } = Promise.withResolvers();
+    listeners[0]({ type: LIST, id: OPEN }, BACKGROUND, resolve);
+    const answer = plain(await promise);
+    assert.equal(answer.items.length, 225);
+    assert.equal(most, 6);
 });
 
 test('the page only answers the background script, and only for an id of the form', () => {
@@ -539,4 +633,75 @@ test('the name of the data extension in the path opens the list too, by a click,
     key(step(), ' ');
     key(step(), 'a');
     assert.equal(panel(), null);
+});
+
+test('the list is watched for only while a data extension is open, and then in Email Studio’s content only', async () => {
+    const { tell, watching, button, document } = await frame();
+    assert.deepEqual(watching, []);
+    tell(`de-pages/de/${OPEN}`);
+    assert.deepEqual(watching, ['off', 'carbon-legacy-dynamic']);
+    tell(`de-pages/de/${OTHER}`);
+    assert.deepEqual(watching, ['off', 'carbon-legacy-dynamic']);
+    tell(`de-grid/dataextension/${FOLDER}`);
+    assert.deepEqual(watching, ['off', 'carbon-legacy-dynamic', 'off']);
+    document.querySelector('#carbon-legacy-dynamic').insertAdjacentHTML('beforeend', '<p></p>');
+    await tick();
+    assert.equal(button(), null);
+});
+
+test('until Email Studio’s content is there, the whole document is watched', async () => {
+    const { tell, watching, document, button } = await frame();
+    document.querySelector('#carbon-legacy-content').remove();
+    tell(`de-pages/de/${OPEN}`);
+    assert.deepEqual(watching, ['off', 'html']);
+    document.body.insertAdjacentHTML(
+        'beforeend',
+        `<div id="carbon-legacy-content"><div id="carbon-legacy-dynamic">${HEADER}</div></div>`,
+    );
+    await tick();
+    assert.ok(button());
+    assert.deepEqual(watching, ['off', 'html', 'off', 'carbon-legacy-dynamic']);
+});
+
+test('the step of the path gets back what Email Studio had set on it', async () => {
+    const { tell, step } = await frame();
+    step().title = 'Set by Email Studio';
+    step().setAttribute('role', 'link');
+    tell(`de-pages/de/${OPEN}`);
+    assert.match(step().title, /^SFMC UX Tools: /);
+    assert.equal(step().getAttribute('role'), 'button');
+    tell(`de-grid/dataextension/${FOLDER}`);
+    assert.equal(step().title, 'Set by Email Studio');
+    assert.equal(step().getAttribute('role'), 'link');
+    assert.equal(step().hasAttribute('tabindex'), false);
+    assert.equal(Object.hasOwn(step().dataset, 'sfmcUxToolsDeSwitcher'), false);
+});
+
+test('the list stays inside the window, and is placed below the path', async () => {
+    const { window, tell, step, button, panel } = await frame();
+    Object.defineProperty(window, 'innerWidth', { value: 600, configurable: true });
+    tell(`de-pages/de/${OPEN}`);
+    step().getBoundingClientRect = () => ({ left: 400, bottom: 30 });
+    button().getBoundingClientRect = () => ({ left: 480, bottom: 34 });
+    button().click();
+    assert.equal(panel().style.left, '232px');
+    assert.equal(panel().style.top, '40px');
+    button().click();
+    step().getBoundingClientRect = () => ({ left: 20, bottom: 30 });
+    button().click();
+    assert.equal(panel().style.left, '20px');
+    button().click();
+    step().getBoundingClientRect = () => ({ left: 2, bottom: 30 });
+    button().click();
+    assert.equal(panel().style.left, '8px');
+});
+
+test('the list is scrolled to the open data extension once it is read', async () => {
+    const { tell, button, scrolled, search } = await frame();
+    tell(`de-pages/de/${OTHER}`);
+    button().click();
+    await tick();
+    assert.deepEqual(scrolled, [{ name: 'Beta_Queue', block: 'center' }]);
+    search('a');
+    assert.equal(scrolled.length, 1);
 });

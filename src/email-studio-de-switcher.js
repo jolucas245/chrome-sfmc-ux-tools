@@ -1,12 +1,13 @@
 /*
- * SFMC UX Tools — content script for the list of the other data extensions of a folder, next to
- * the name of an open data extension in Email Studio.
+ * SFMC UX Tools — content script for the list of the other data extensions of a folder, opened
+ * from the path above an open data extension in Email Studio.
  *
  * deep-link-email-studio-page.js tells which view Email Studio shows. While it is a data
  * extension, the last step of the path above it, its name, and a button after that step open a
- * list of the data extensions of the same folder,
- * which the Marketing Cloud page reads on each opening through the background script. A data
- * extension that is picked is opened by Email Studio's own route, through the same script.
+ * list of the data extensions of the same folder, which the Marketing Cloud page reads on each
+ * opening through the background script. A data extension that is picked is opened by Email
+ * Studio's own route, through the same script. Only while a data extension is open does the
+ * script watch Email Studio's content for the path to be drawn.
  */
 (() => {
     'use strict';
@@ -19,10 +20,18 @@
     const NO_VIEW = new Set(['none', 'cleared']);
     const ROUTE = 'Subscribers/customobject/';
     const STEPS = '.op-head .lg-head-breadcrumb > .breadcrumb-step';
+    const CONTENT = '#carbon-legacy-dynamic';
     const TRIGGER = 'data-sfmc-ux-tools-de-switcher';
+    // what the script sets on the step of the path, and gives back as it was
+    const MARKS = [TRIGGER, 'role', 'tabindex', 'aria-haspopup', 'title'];
     const BUTTON = 'sfmc-ux-tools-de-switcher-button';
     const PANEL = 'sfmc-ux-tools-de-switcher-panel';
     const ITEM = 'sfmc-ux-tools-de-switcher-item';
+    // pixels between the path and the list, and between the list and the edge of the window
+    const PANEL_GAP = 6;
+    const PANEL_MARGIN = 8;
+    // the width in email-studio-de-switcher.css, for when the list has not been laid out yet
+    const PANEL_WIDTH = 360;
     const MADE_BY = 'SFMC UX Tools';
     const TITLE = `${MADE_BY}: the other data extensions of this folder. Pick one to open it.`;
     const LOADING = 'Loading…';
@@ -34,6 +43,8 @@
     let panel;
     let entries = [];
     let asked = 0;
+    let before = new Map();
+    let watched;
 
     /**
      * Makes the extension's icon, which says what the extension added here.
@@ -180,9 +191,11 @@
         const bottom = Math.max(
             ...[step, button].map((element) => element?.getBoundingClientRect().bottom ?? 0),
         );
-        panel.style.left = `${Math.round(left)}px`;
-        panel.style.top = `${Math.round(bottom + 6)}px`;
+        panel.style.top = `${Math.round(bottom + PANEL_GAP)}px`;
         document.body.append(panel);
+        const width = panel.getBoundingClientRect().width || PANEL_WIDTH;
+        const inside = Math.min(left, innerWidth - width - PANEL_MARGIN);
+        panel.style.left = `${Math.round(Math.max(PANEL_MARGIN, inside))}px`;
         button.setAttribute('aria-expanded', 'true');
         document.addEventListener('pointerdown', onOutside, { capture: true });
         search.focus();
@@ -206,6 +219,7 @@
         }
         entries = answer.items;
         render();
+        list.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'center' });
         if (answer.isCut === true) {
             say(`${panel.querySelector('[role="status"]').textContent}; the folder has more`);
         }
@@ -242,9 +256,14 @@
         if (!step) {
             return;
         }
-        for (const name of [TRIGGER, 'role', 'tabindex', 'aria-haspopup', 'title']) {
-            step.removeAttribute(name);
+        for (const [name, value] of before) {
+            if (value === null) {
+                step.removeAttribute(name);
+                continue;
+            }
+            step.setAttribute(name, value);
         }
+        before = new Map();
         step.removeEventListener('click', toggle);
         step.removeEventListener('keydown', onStepKey);
         step = undefined;
@@ -269,6 +288,7 @@
         release();
         button?.remove();
         step = found;
+        before = new Map(MARKS.map((name) => [name, step.getAttribute(name)]));
         step.setAttribute(TRIGGER, '');
         step.setAttribute('role', 'button');
         step.setAttribute('tabindex', '0');
@@ -301,9 +321,30 @@
         }
         current = id;
         sync();
+        watch();
     });
-    new MutationObserver(sync).observe(document.documentElement, {
-        childList: true,
-        subtree: true,
+
+    const observer = new MutationObserver(() => {
+        sync();
+        watch();
     });
+
+    /**
+     * Watches Email Studio's content while a data extension is open, so that a path that is drawn
+     * again gets the list again, and nothing at all otherwise. Until the content is there, the
+     * whole document is watched.
+     */
+    function watch() {
+        const target = current
+            ? (document.querySelector(CONTENT) ?? document.documentElement)
+            : undefined;
+        if (target === watched) {
+            return;
+        }
+        observer.disconnect();
+        watched = target;
+        if (target) {
+            observer.observe(target, { childList: true, subtree: true });
+        }
+    }
 })();
